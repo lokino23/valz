@@ -58,3 +58,22 @@ def test_none_denominators_emit_none_fields():
     assert r["per_ttm"] == pytest.approx(30.0 / (22.0 / 10.0))
     assert r["pbv"] == pytest.approx(300.0 / 410.0)
     assert r["ps_ttm"] == pytest.approx(300.0 / 220.0)
+
+
+def test_negative_ttm_net_income_excluded():
+    """Review fix: the single-filing golden case only reaches _ttm's
+    >=2-present rule -- this window has BOTH quarters' NI present and the
+    TTM sum NEGATIVE, so the ni>0 sign guard itself must fire."""
+    FRN2 = [dict(FR[0], net_income=-5.0), dict(FR[1], net_income=-7.0)]
+    rows = build_multiples([("2025-10-01", 30.0)], FRN2, SH, [])
+    assert rows[0]["per_ttm"] is None        # NI TTM = -12 <= 0
+
+
+def test_net_cash_ev_nonpositive_excluded():
+    """Review fix: last filing's cash exceeds mcap + debt -> EV <= 0 ->
+    ev_ebitda None even with a valid positive EBITDA TTM; PER/PBV intact."""
+    FRC = [dict(FR[0]), dict(FR[1], total_debt=20.0, cash=400.0)]
+    r = build_multiples([("2025-10-01", 30.0)], FRC, SH, [])[0]
+    assert r["ev_ebitda"] is None            # EV = 300 + 20 - 400 = -80
+    assert r["per_ttm"] == pytest.approx(30.0 / (22.0 / 10.0))
+    assert r["pbv"] == pytest.approx(300.0 / 410.0)
