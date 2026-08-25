@@ -1,9 +1,11 @@
-import os, yaml
+import copy, os, yaml
 _DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULTS = yaml.safe_load(open(os.path.join(_DIR, "config.example.yaml"), encoding="utf-8"))
+with open(os.path.join(_DIR, "config.example.yaml"), encoding="utf-8") as f:
+    DEFAULTS = yaml.safe_load(f)
 
 def load_config(path=None):
-    cfg = dict(DEFAULTS)
+    cfg = copy.deepcopy(DEFAULTS)
     if path:
-        cfg.update(yaml.safe_load(open(path, encoding="utf-8")) or {})
+        with open(path, encoding="utf-8") as f:
+            cfg.update(yaml.safe_load(f) or {})
     return cfg
