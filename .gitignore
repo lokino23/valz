@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Env & secrets
+.env
+
+# Regenerable data (never hand-edit, never commit)
+*.db
+*.db.bak*
+data/
+
+# OS / editor noise
+Thumbs.db
+.DS_Store
+tmp/
