@@ -28,6 +28,14 @@ def test_override_multiplies():
     assert shares_at(SERIES, OVR, "2022-01-05") == 123.0e9   # unaffected before
 
 
+def test_override_code_filter():
+    # Overrides carry a code field: only matching tickers may apply.
+    assert shares_at(SERIES, OVR, "2022-06-11",
+                     code="BBCA") == 123.0e9   # BBRI override must NOT apply
+    assert shares_at(SERIES, OVR, "2022-06-11",
+                     code="BBRI") == 246.0e9   # own override applies
+
+
 def test_implied_from_real_fixture(tmp_path):
     """Pin the real idx_fundamentals payload shape: summary is a verdict
     STRING; numerics live under raw (equity_parent) and market (bvps)."""

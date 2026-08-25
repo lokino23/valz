@@ -39,15 +39,22 @@ def _hint(payload, key):
     return None
 
 
-def shares_at(series, overrides, d):
-    """Latest implied share count on/before date d, times cumulative CA mults."""
+def shares_at(series, overrides, d, code=None):
+    """Latest implied share count on/before date d, times cumulative CA mults.
+
+    When code is provided, only overrides whose o["code"] matches
+    (case-insensitive) apply -- a multi-ticker override list must not
+    cross-contaminate. code=None keeps legacy behavior (apply all)."""
     best = None
     for sd, s in series:
         if sd <= d:
             best = s
     if best is None:
         return None
+    want = str(code).upper() if code is not None else None
     for o in sorted(overrides, key=lambda o: str(o.get("date", ""))):
+        if want is not None and str(o.get("code", "")).upper() != want:
+            continue
         if str(o.get("date", "")) <= d:
             best *= float(o["mult"])
     return best
