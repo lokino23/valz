@@ -1,0 +1,8 @@
+.env
+data/
+config.yaml
+.git*
+.superpowers/
+__pycache__/
+*.pyc
+.pytest_cache/

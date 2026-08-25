@@ -6,6 +6,10 @@ set -u
 cd "$(dirname "$0")"
 mkdir -p data
 
+# cron envs are minimal: source .env for IDX_MCP_URL / ARJUM_API_KEY
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
+: "${IDX_MCP_URL:?IDX_MCP_URL missing - create ~/valz/src/.env}"
+
 echo "=== valz refresh $(date -Is) ==="
 
 # 1) price merge for the full configured universe
