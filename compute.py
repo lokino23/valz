@@ -70,14 +70,32 @@ import sys
 from db import connect
 from multiples import build_multiples
 from shares import implied_shares_series
-from zstats import fit
+from zstats import fit, winsorize
 
 VAR_COLS = {"per": "per_ttm", "pbv": "pbv",
             "ev_ebitda": "ev_ebitda", "ps": "ps_ttm"}
 
 
-def group_of(cfg, code):
-    return cfg.get("sector_map", {}).get(code, "general")
+def group_of(cfg, code, con=None):
+    """sector_map first; else the issuer's own fundamentals.sector
+    (vocabulary matches config groups keys); else general."""
+    g = cfg.get("sector_map", {}).get(code)
+    if g:
+        return g
+    if con is not None:
+        r = con.execute(
+            "SELECT sector FROM fundamentals WHERE code=? AND sector"
+            " IS NOT NULL ORDER BY period_end DESC LIMIT 1", (code,)).fetchone()
+        if r and r["sector"]:
+            return r["sector"]
+    return "general"
+
+
+def group_primary(cfg, g):
+    """Group config with general fallback for unknown sector labels."""
+    gc = cfg.get("groups", {})
+    return (gc.get(g) or gc.get("general") or
+            {"primary": "per", "secondary": "pbv"})
 
 
 def _merge_anchor(series, con, code):
@@ -118,8 +136,8 @@ def compute_all(db_path, cfg):
             con.executemany("INSERT OR REPLACE INTO multiples VALUES(?,?,?,?,?,?)",
                 [(code, r["date"], r["per_ttm"], r["pbv"],
                   r["ev_ebitda"], r["ps_ttm"]) for r in clean])
-            g = group_of(cfg, code)
-            prim = VAR_COLS[cfg["groups"][g]["primary"]]
+            g = group_of(cfg, code, con)
+            prim = VAR_COLS[group_primary(cfg, g)["primary"]]
             obs = [(r["date"], r[prim]) for r in rows if r[prim] is not None]
             reasons = []
             # Deviation 1: PER-primary needs a live per_ttm at the latest price.
@@ -127,8 +145,10 @@ def compute_all(db_path, cfg):
                 reasons.append("no_current_per")
             if fr and fr[-1].get("currency") not in (None, "IDR"):
                 reasons.append("usd")
+            lo, hi = cfg.get("winsor_pct", [0.01, 0.99])
             for wk, wd in cfg["windows_days"].items():
-                mu, sg, n = fit([v for _, v in obs], int(wd))
+                mu, sg, n = fit(winsorize([v for _, v in obs], lo, hi),
+                                int(wd))
                 con.execute("INSERT OR REPLACE INTO stats VALUES(?,?,?,?,?)",
                             (code, wk, mu, sg, n))
                 if n < cfg["min_coverage"] * int(wd):

@@ -14,13 +14,14 @@ Design notes:
 - ``coverage_issues`` are compute-time facts about the run, so /api/screen
   reports them globally regardless of window/sector filters.
 """
+import os
 import pathlib
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from compute import VAR_COLS, group_of
+from compute import VAR_COLS, group_of, group_primary
 from config import load_config
 from db import connect
 from zstats import streak
@@ -63,7 +64,9 @@ def _ratios(frows):
 
 def create_app(db_path=None, cfg=None):
     if cfg is None:
-        cfg = load_config()
+        # mirror the CLI: honor a repo-local/deployed config.yaml when present
+        cfg = load_config("config.yaml" if os.path.exists("config.yaml")
+                          else None)
     if db_path is None:
         db_path = "data/valz.db"
 
@@ -116,8 +119,8 @@ def create_app(db_path=None, cfg=None):
             ranked = []
             for s in con.execute("SELECT * FROM stats WHERE window=?",
                                  (window,)).fetchall():
-                grp = group_of(cfg, s["code"])
-                gcfg = cfg["groups"].get(grp) or cfg["groups"]["general"]
+                grp = group_of(cfg, s["code"], con)
+                gcfg = group_primary(cfg, grp)
                 primary = gcfg["primary"]
                 col = VAR_COLS.get(primary)
                 m = None if col is None else con.execute(
@@ -178,8 +181,8 @@ def create_app(db_path=None, cfg=None):
             if not known:
                 return JSONResponse(status_code=404, content={
                     "ok": False, "error": "unknown ticker"})
-            grp = group_of(cfg, code)
-            gcfg = cfg["groups"].get(grp) or cfg["groups"]["general"]
+            grp = group_of(cfg, code, con)
+            gcfg = group_primary(cfg, grp)
             srow = con.execute(
                 "SELECT mu, sigma, n_obs FROM stats WHERE code=? AND window=?",
                 (code, window)).fetchone()
@@ -212,16 +215,16 @@ def create_app(db_path=None, cfg=None):
     def meta():
         con = _open()
         try:
-            universe_count = con.execute(
-                "SELECT COUNT(DISTINCT code) AS c FROM stats").fetchone()["c"]
+            stats_codes = {r["code"] for r in con.execute(
+                "SELECT DISTINCT code FROM stats")}
             issue_codes = {r["code"] for r in con.execute(
-                "SELECT code FROM coverage_issues")}
+                "SELECT code FROM coverage_issues")} & stats_codes
             row = con.execute(
                 "SELECT value FROM meta WHERE key='last_compute'").fetchone()
             return {"ok": True,
                     "last_compute": row["value"] if row else None,
-                    "universe_count": universe_count,
-                    "coverage": {"ok": universe_count - len(issue_codes),
+                    "universe_count": len(stats_codes),
+                    "coverage": {"ok": len(stats_codes) - len(issue_codes),
                                  "issues": len(issue_codes)},
                     "version": VERSION}
         finally:

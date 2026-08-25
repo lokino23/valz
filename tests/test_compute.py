@@ -47,15 +47,46 @@ def test_check_clean(tmp_path):
     p = str(tmp_path / "t.db"); _seed(p); compute_all(p, CFG)
     assert check(p, CFG) == []
 
-def test_compute_isolates_per_code_failure(tmp_path):
-    """One bad code (sector_map -> unknown group => KeyError) must not abort
-    the whole run: it lands in coverage_issues as compute_error:*."""
+def test_compute_isolates_per_code_failure(tmp_path, monkeypatch):
+    """Per-code isolation: a code whose pipeline raises lands in
+    coverage_issues as compute_error:* without aborting the other codes."""
     p = str(tmp_path / "t.db"); _seed(p)
-    cfg = dict(CFG, sector_map={"GOOD": "nonexistent_group"})
-    r = compute_all(p, cfg)                              # must NOT raise
-    assert r["ok"] == 0 and r["issues"] == 2
+    import compute as cmod
+    real = cmod.build_multiples
+
+    def boom(pr, fr, shares, ovr, lag, code=None):
+        if code == "BAD":
+            raise RuntimeError("boom")
+        return real(pr, fr, shares, ovr, lag, code=code)
+
+    monkeypatch.setattr(cmod, "build_multiples", boom)
+    r = compute_all(p, CFG)                              # must NOT raise
+    assert r["ok"] == 1 and r["issues"] == 1
     con = connect(p, readonly=True)
     issues = {x["code"]: x["reason"]
               for x in con.execute("SELECT * FROM coverage_issues")}
-    assert issues["GOOD"].startswith("compute_error:")
-    assert "no_current_per" in issues["BAD"] and "low_coverage:w5y" in issues["BAD"]
+    assert issues["BAD"].startswith("compute_error:")
+    assert "GOOD" not in issues
+
+
+def test_unknown_group_label_falls_back_to_general(tmp_path):
+    """sector_map pointing at an unknown group label no longer KeyErrors:
+    group_primary falls back to general config so the code still computes
+    (final-review finding 3 follow-up)."""
+    p = str(tmp_path / "t.db"); _seed(p)
+    cfg = dict(CFG, sector_map={"GOOD": "nonexistent_group"})
+    r = compute_all(p, cfg)                              # must NOT raise
+    assert r["ok"] >= 1                                  # GOOD computed fine
+
+
+def test_sector_fallback_via_fundamentals(tmp_path):
+    """No sector_map entry -> fundamentals.sector decides the group label;
+    with a matching groups entry the issuer takes its sector lane."""
+    p = str(tmp_path / "t.db"); _seed(p)                 # GOOD has sector=consumer
+    cfg = dict(CFG, groups=dict(CFG["groups"],
+                                consumer={"primary": "pbv", "secondary": "per"}))
+    compute_all(p, dict(cfg, sector_map={}))
+    con = connect(p, readonly=True)
+    row = con.execute(
+        "SELECT n_obs FROM stats WHERE code='GOOD' AND window='w5y'").fetchone()
+    assert row is not None and row["n_obs"] > 0

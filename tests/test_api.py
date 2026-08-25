@@ -193,7 +193,7 @@ def test_ticker_contract_keys(client):
 
 def test_ticker_series_stats_filings(client):
     b = client.get("/api/ticker/AAA").json()
-    assert b["meta"] == {"code": "AAA", "sector_group": "general",
+    assert b["meta"] == {"code": "AAA", "sector_group": "consumer",
                          "primary_var": "per", "secondary_var": "pbv"}
     assert b["stats"] == {"mu": 10.0, "sigma": 2.0, "n_obs": 1100}
     assert [(p["date"], p["v"], p["z"]) for p in b["series"]] == [
