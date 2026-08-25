@@ -8,6 +8,9 @@ venv/
 # Env & secrets
 .env
 
+# Deployed/seeded config (per-machine; example IS committed)
+config.yaml
+
 # Regenerable data (never hand-edit, never commit)
 *.db
 *.db.bak*
