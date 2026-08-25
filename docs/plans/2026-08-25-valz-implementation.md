@@ -1073,7 +1073,7 @@ from config import load_config
 from db import connect, init_db
 from fundamentals_fetch import backfill_fundamentals
 from mcp_client import McpClient
-from prices import merge_prices
+import prices
 from universe import seed_universe, write_universe
 
 
@@ -1111,7 +1111,7 @@ def main(argv=None):
     init_db(dbp)
     con = connect(dbp)
     fr = backfill_fundamentals(con, client, cfg, codes, _years())
-    n_px = merge_prices(con, cfg, codes)
+    n_px = prices.merge_prices(con, cfg, codes)
     sh = 0
     for c in codes:
         try:
