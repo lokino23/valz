@@ -46,3 +46,16 @@ def test_compute_all_stats_and_issues(tmp_path):
 def test_check_clean(tmp_path):
     p = str(tmp_path / "t.db"); _seed(p); compute_all(p, CFG)
     assert check(p, CFG) == []
+
+def test_compute_isolates_per_code_failure(tmp_path):
+    """One bad code (sector_map -> unknown group => KeyError) must not abort
+    the whole run: it lands in coverage_issues as compute_error:*."""
+    p = str(tmp_path / "t.db"); _seed(p)
+    cfg = dict(CFG, sector_map={"GOOD": "nonexistent_group"})
+    r = compute_all(p, cfg)                              # must NOT raise
+    assert r["ok"] == 0 and r["issues"] == 2
+    con = connect(p, readonly=True)
+    issues = {x["code"]: x["reason"]
+              for x in con.execute("SELECT * FROM coverage_issues")}
+    assert issues["GOOD"].startswith("compute_error:")
+    assert "no_current_per" in issues["BAD"] and "low_coverage:w5y" in issues["BAD"]

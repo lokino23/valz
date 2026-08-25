@@ -5,7 +5,10 @@ For every universe code having prices: rebuild daily TTM multiples
 the group's PRIMARY variable series, evaluate coverage eligibility writing
 failures into coverage_issues, and stamp meta.last_compute. Returns counts
 {ok, issues}. check(db_path) is the selftest asserting data invariants and
-returning violation strings.
+returning violation strings. Per-code processing is exception-isolated: any
+failure lands that code in coverage_issues with reason
+"compute_error:<ExcType>" and the run continues -- one bad row or config
+typo must never abort the nightly batch (review-mandated isolation).
 
 Sector lookup: group_of(cfg, code) = cfg["sector_map"].get(code,
 "general"); primary var = cfg["groups"][g]["primary"] mapped through
@@ -94,48 +97,54 @@ def compute_all(db_path, cfg):
     con.execute("DELETE FROM coverage_issues")
     ok = 0
     for code in codes:
-        pr = [(r["date"], r["close"]) for r in con.execute(
-            "SELECT date, close FROM prices WHERE code=? AND close>0 ORDER BY date",
-            (code,))]
-        fr = [dict(r) for r in con.execute(
-            "SELECT * FROM fundamentals WHERE code=? ORDER BY period_end", (code,))]
-        # Deviation 6: unit-shares last-resort anchor (docstring above).
-        series_sh = _merge_anchor(
-            implied_shares_series(con, code, current_shares=1.0), con, code)
-        ovr = [o for o in cfg.get("ca_overrides", []) if o.get("code") == code]
-        # Deviation 5: code=code scopes overrides inside build_multiples too.
-        rows = build_multiples(pr, fr, series_sh, ovr,
-                               cfg["filing_lag_days"], code=code)
-        con.execute("DELETE FROM multiples WHERE code=?", (code,))
-        # Deviation 3: write only rows carrying >=1 non-null metric.
-        clean = [r for r in rows
-                 if r["per_ttm"] is not None or r["pbv"] is not None
-                 or r["ev_ebitda"] is not None or r["ps_ttm"] is not None]
-        con.executemany("INSERT OR REPLACE INTO multiples VALUES(?,?,?,?,?,?)",
-            [(code, r["date"], r["per_ttm"], r["pbv"],
-              r["ev_ebitda"], r["ps_ttm"]) for r in clean])
-        g = group_of(cfg, code)
-        prim = VAR_COLS[cfg["groups"][g]["primary"]]
-        obs = [(r["date"], r[prim]) for r in rows if r[prim] is not None]
-        reasons = []
-        # Deviation 1: PER-primary needs a live per_ttm at the latest price.
-        if prim == "per_ttm" and rows and rows[-1]["per_ttm"] is None:
-            reasons.append("no_current_per")
-        if fr and fr[-1].get("currency") not in (None, "IDR"):
-            reasons.append("usd")
-        for wk, wd in cfg["windows_days"].items():
-            mu, sg, n = fit([v for _, v in obs], int(wd))
-            con.execute("INSERT OR REPLACE INTO stats VALUES(?,?,?,?,?)",
-                        (code, wk, mu, sg, n))
-            if n < cfg["min_coverage"] * int(wd):
-                reasons.append(f"low_coverage:{wk}")
-        if reasons:
+        try:
+            pr = [(r["date"], r["close"]) for r in con.execute(
+                "SELECT date, close FROM prices WHERE code=? AND close>0 ORDER BY date",
+                (code,))]
+            fr = [dict(r) for r in con.execute(
+                "SELECT * FROM fundamentals WHERE code=? ORDER BY period_end", (code,))]
+            # Deviation 6: unit-shares last-resort anchor (docstring above).
+            series_sh = _merge_anchor(
+                implied_shares_series(con, code, current_shares=1.0), con, code)
+            ovr = [o for o in cfg.get("ca_overrides", []) if o.get("code") == code]
+            # Deviation 5: code=code scopes overrides inside build_multiples too.
+            rows = build_multiples(pr, fr, series_sh, ovr,
+                                   cfg["filing_lag_days"], code=code)
+            con.execute("DELETE FROM multiples WHERE code=?", (code,))
+            # Deviation 3: write only rows carrying >=1 non-null metric.
+            clean = [r for r in rows
+                     if r["per_ttm"] is not None or r["pbv"] is not None
+                     or r["ev_ebitda"] is not None or r["ps_ttm"] is not None]
+            con.executemany("INSERT OR REPLACE INTO multiples VALUES(?,?,?,?,?,?)",
+                [(code, r["date"], r["per_ttm"], r["pbv"],
+                  r["ev_ebitda"], r["ps_ttm"]) for r in clean])
+            g = group_of(cfg, code)
+            prim = VAR_COLS[cfg["groups"][g]["primary"]]
+            obs = [(r["date"], r[prim]) for r in rows if r[prim] is not None]
+            reasons = []
+            # Deviation 1: PER-primary needs a live per_ttm at the latest price.
+            if prim == "per_ttm" and rows and rows[-1]["per_ttm"] is None:
+                reasons.append("no_current_per")
+            if fr and fr[-1].get("currency") not in (None, "IDR"):
+                reasons.append("usd")
+            for wk, wd in cfg["windows_days"].items():
+                mu, sg, n = fit([v for _, v in obs], int(wd))
+                con.execute("INSERT OR REPLACE INTO stats VALUES(?,?,?,?,?)",
+                            (code, wk, mu, sg, n))
+                if n < cfg["min_coverage"] * int(wd):
+                    reasons.append(f"low_coverage:{wk}")
+            if reasons:
+                con.execute("INSERT OR REPLACE INTO coverage_issues VALUES(?,?,?,?)",
+                            (code, ";".join(reasons),
+                             json.dumps({"n_primary_obs": len(obs)}),
+                             dt.datetime.now().isoformat(timespec="seconds")))
+            else:
+                ok += 1
+        except Exception as e:  # per-code isolation: never abort the batch
             con.execute("INSERT OR REPLACE INTO coverage_issues VALUES(?,?,?,?)",
-                        (code, ";".join(reasons),
-                         json.dumps({"n_primary_obs": len(obs)}),
+                        (code, f"compute_error:{type(e).__name__}",
+                         json.dumps({"error": str(e)[:200]}),
                          dt.datetime.now().isoformat(timespec="seconds")))
-        else:
-            ok += 1
     con.execute("INSERT OR REPLACE INTO meta VALUES('last_compute',?)",
                 (dt.datetime.now().isoformat(timespec="seconds"),))
     con.commit(); con.close()
