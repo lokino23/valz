@@ -1,0 +1,12 @@
+services:
+  valz:
+    build: .
+    container_name: valz
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - IDX_MCP_URL=${IDX_MCP_URL:?set IDX_MCP_URL in .env - localhost refused on host}
+      - ARJUM_API_KEY=${ARJUM_API_KEY:-}
