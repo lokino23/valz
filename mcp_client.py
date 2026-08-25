@@ -26,10 +26,16 @@ class McpClient:
                 "params": {"name": name, "arguments": args}}
         d = _parse_sse(self._post(body))
         if d is None: raise RuntimeError(f"mcp: no data for {name}")
+        if "error" in d:
+            raise RuntimeError(f"mcp rpc error: {json.dumps(d['error'])[:200]}")
         res = d.get("result", {})
         if isinstance(res.get("structuredContent"), dict):
             return res["structuredContent"]
-        out = json.loads(res["content"][0]["text"])
+        try:
+            out = json.loads(res["content"][0]["text"])
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+            ctx = json.dumps(d)[:200]
+            raise RuntimeError(f"mcp {name}: unparseable content ({exc}): {ctx}") from exc
         if isinstance(out, dict) and "error" in out:
             raise RuntimeError(f"mcp tool error: {out['error'][:200]}")
         return out
