@@ -14,8 +14,11 @@ Design notes:
 - ``coverage_issues`` are compute-time facts about the run, so /api/screen
   reports them globally regardless of window/sector filters.
 """
+import pathlib
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from compute import VAR_COLS, group_of
 from config import load_config
@@ -223,6 +226,12 @@ def create_app(db_path=None, cfg=None):
                     "version": VERSION}
         finally:
             con.close()
+
+    # static ui mounted last so /api/* routes keep precedence
+    static_dir = pathlib.Path(__file__).parent / "static"
+    if static_dir.is_dir():
+        app.mount("/", StaticFiles(directory=str(static_dir), html=True),
+                  name="static")
 
     return app
 

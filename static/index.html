@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>valz — valuation z-score screener</title>
+<script src="vendor/echarts.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --text: #e2e8f0;
+    --accent: #38bdf8;
+    --danger: #f87171;
+    --muted: #64748b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    padding: 14px 20px; background: var(--panel);
+    border-bottom: 1px solid rgba(148,163,184,.18);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header h1 { font-size: 17px; margin: 0 18px 0 0; color: var(--accent); }
+  header label { color: var(--muted); font-size: 12px; margin-right: 4px; }
+  select, input[type=range] { accent-color: var(--accent); }
+  select {
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(148,163,184,.35); border-radius: 6px; padding: 4px 8px;
+  }
+  #threshold-val { min-width: 44px; color: var(--accent); font-weight: 600; }
+  .facts { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .facts b { color: var(--text); font-weight: 600; }
+  main { padding: 16px 20px 40px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; }
+  thead th {
+    text-align: right; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); padding: 10px 12px; border-bottom: 1px solid rgba(148,163,184,.25);
+  }
+  thead th:first-child, tbody td:first-child { text-align: left; }
+  tbody td { padding: 9px 12px; text-align: right; border-bottom: 1px solid rgba(148,163,184,.09); }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: rgba(56,189,248,.07); }
+  tbody tr.deep { background: rgba(248,113,113,.10); box-shadow: inset 3px 0 0 var(--danger); }
+  td.code { font-weight: 700; color: var(--accent); }
+  .flag { display: inline-block; font-size: 10px; padding: 1px 7px; margin-left: 4px; border-radius: 999px;
+          border: 1px solid rgba(148,163,184,.4); color: var(--muted); vertical-align: middle; }
+  .flag.usd { border-color: var(--danger); color: var(--danger); }
+  .flag.low_coverage { border-color: #fbbf24; color: #fbbf24; }
+  .empty { padding: 30px; text-align: center; color: var(--muted); }
+
+  /* drawer */
+  #drawer {
+    position: fixed; top: 0; right: -62%; width: 60%; height: 100vh;
+    background: var(--panel); border-left: 1px solid rgba(148,163,184,.25);
+    box-shadow: -18px 0 42px rgba(0,0,0,.45); transition: right .22s ease;
+    padding: 18px 22px; z-index: 20; overflow-y: auto;
+  }
+  #drawer.open { right: 0; }
+  #drawer h2 { margin: 0 0 2px; font-size: 19px; color: var(--accent); }
+  #drawer .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  #drawer-close {
+    position: absolute; top: 12px; right: 14px; background: none; border: none;
+    color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1;
+  }
+  #drawer-close:hover { color: var(--danger); }
+  #chart { width: 100%; height: 62vh; }
+  .stats-row { display: flex; gap: 26px; margin: 10px 0 4px; flex-wrap: wrap; }
+  .stats-row div span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+  .stats-row div b { font-size: 15px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>valz</h1>
+  <label for="filter-window">Window</label>
+  <select id="filter-window">
+    <option value="w5y" selected>w5y</option>
+    <option value="w3y">w3y</option>
+  </select>
+  <label for="threshold">Threshold</label>
+  <input type="range" id="threshold" min="-3.0" max="-0.5" step="0.25" value="-1.0">
+  <span id="threshold-val">-1.00</span>
+  <div class="facts">
+    source <b id="fact-source">–</b> · as_of <b id="fact-asof">–</b>
+    · <span id="fact-counts">–</span>
+  </div>
+</header>
+
+<main>
+  <table id="tbl">
+    <thead><tr>
+      <th>Code</th><th>Group</th><th>Primary</th><th>Now</th><th>Mean</th>
+      <th>σ</th><th>Z</th><th>Disc%</th><th>Streak</th><th>Flags</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="empty" id="empty-msg" hidden>Loading…</div>
+</main>
+
+<aside id="drawer">
+  <button id="drawer-close" title="tutup">✕</button>
+  <h2 id="drawer-code">—</h2>
+  <div class="sub" id="drawer-sub"></div>
+  <div class="stats-row" id="drawer-stats"></div>
+  <div id="chart"></div>
+</aside>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let chart = null;
+
+function fmt(v, digits = 2) {
+  if (v === null || v === undefined) return "–";
+  return Number(v).toFixed(digits);
+}
+
+async function jget(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${url}`);
+  return r.json();
+}
+
+/* ---------- table ---------- */
+
+function renderRows(payload) {
+  const tbody = $("tbl").querySelector("tbody");
+  tbody.textContent = "";
+  $("fact-source").textContent = payload.source ?? "–";
+  $("fact-asof").textContent = payload.as_of ?? "Tanggal data tidak tersedia";
+  $("fact-counts").textContent =
+    `${payload.counts.ranked} ranked · ${payload.counts.issues} issues`;
+  const thr = parseFloat($("threshold").value);
+  if (!payload.rows.length) {
+    $("empty-msg").hidden = false;
+    $("empty-msg").textContent = "Tidak ada baris di bawah threshold ini.";
+    return;
+  }
+  $("empty-msg").hidden = true;
+  for (const row of payload.rows) {
+    const tr = document.createElement("tr");
+    if (row.z <= thr) tr.classList.add("deep");
+    const flagHtml = (row.flags || []).map((f) =>
+      `<span class="flag ${f}">${f}</span>`).join("")
+      || '<span class="flag">–</span>';
+    tr.innerHTML = `
+      <td class="code">${row.code}</td>
+      <td>${row.sector_group}</td>
+      <td>${row.primary_var}</td>
+      <td>${fmt(row.value_now)}</td>
+      <td>${fmt(row.mean)}</td>
+      <td>${fmt(row.sigma)}</td>
+      <td>${fmt(row.z)}</td>
+      <td>${row.disc_pct === null ? "–" : fmt(row.disc_pct, 1) + "%"}</td>
+      <td>${row.streak_days}</td>
+      <td>${flagHtml}</td>`;
+    tr.addEventListener("click", () => openDrawer(row.code));
+    tbody.appendChild(tr);
+  }
+}
+
+async function load() {
+  try {
+    const win = $("filter-window").value;
+    const mz = $("threshold").value;
+    renderRows(await jget(`/api/screen?window=${win}&max_z=${mz}`));
+  } catch (e) {
+    $("empty-msg").hidden = false;
+    $("empty-msg").textContent = `Gagal memuat: ${e.message}`;
+  }
+}
+
+/* ---------- drawer ---------- */
+
+function bandSeries(dates, mu, sigma, k, baseName) {
+  /* stacked-area confidence band (official echarts trick):
+     first series = LOWER bound, second = positive delta (upper-lower). */
+  return [
+    { name: `${baseName}-lo`, type: "line",
+      data: dates.map(() => mu - k * sigma), stack: baseName,
+      lineStyle: { opacity: 0 }, symbol: "none", silent: true },
+    { name: baseName, type: "line",
+      data: dates.map(() => 2 * k * sigma), stack: baseName,
+      lineStyle: { opacity: 0 }, symbol: "none", silent: true,
+      areaStyle: { opacity: k === 1 ? 0.16 : 0.08,
+                   color: k === 1 ? "#38bdf8" : "#64748b" } },
+  ];
+}
+
+function showDrawer(data) {
+  $("drawer-code").textContent = data.meta.code;
+  $("drawer-sub").textContent =
+    `${data.meta.sector_group} · primary ${data.meta.primary_var}` +
+    ` · secondary ${data.meta.secondary_var}` +
+    ` · source ${data.source} · as_of ${data.as_of}`;
+  const s = data.stats;
+  $("drawer-stats").innerHTML = `
+    <div><span>μ</span><b>${fmt(s.mu)}</b></div>
+    <div><span>σ</span><b>${fmt(s.sigma)}</b></div>
+    <div><span>n_obs</span><b>${s.n_obs}</b></div>
+    <div><span>filings</span><b>${data.filings.length}</b></div>`;
+  renderChart(data);
+  $("drawer").classList.add("open");
+}
+
+function renderChart(data) {
+  const pts = data.series;
+  const dates = pts.map((p) => p.date);
+  const vals = pts.map((p) => p.v);
+  const zs = pts.map((p) => p.z);
+  const mu = data.stats.mu, sigma = data.stats.sigma;
+  const series = [{
+    name: data.meta.primary_var, type: "line", x: dates, data: vals,
+    showSymbol: false, lineStyle: { color: "#38bdf8", width: 1.6 },
+    itemStyle: { color: "#38bdf8" },
+    markPoint: pts.length ? {
+      data: [{ coord: [dates[dates.length - 1], vals[vals.length - 1]],
+               value: fmt(vals[vals.length - 1]),
+               itemStyle: { color: "#38bdf8" } }],
+    } : undefined,
+    markLine: markLines(data),
+  }];
+  if (mu !== null && sigma) {
+    series.push(...bandSeries(dates, mu, sigma, 1, "band1σ"));
+    series.push(...bandSeries(dates, mu, sigma, 2, "band2σ"));
+  }
+  if (!chart) chart = echarts.init($("chart"));
+  chart.clear();
+  chart.setOption({
+    backgroundColor: "transparent",
+    animation: false,
+    grid: { left: 52, right: 20, top: 28, bottom: 48 },
+    tooltip: {
+      trigger: "axis",
+      formatter: (ps) => {
+        const i = ps[0].dataIndex;
+        return `${dates[i]}<br/>v ${fmt(vals[i])}<br/>z ${fmt(zs[i])}`;
+      },
+    },
+    xAxis: { type: "category", data: dates,
+             axisLine: { lineStyle: { color: "#334155" } },
+             axisLabel: { color: "#64748b" } },
+    yAxis: { type: "value", scale: true,
+             axisLabel: { color: "#64748b" },
+             splitLine: { lineStyle: { color: "rgba(51,65,85,.5)" } } },
+    series,
+  });
+}
+
+/* μ dashed line + red 2px vertical spans at filing dates.
+   Filing period_ends rarely exist verbatim on the trading-date axis, so
+   each one is mapped to the NEAREST available series date first (a
+   degenerate start==end markArea would render zero pixels anyway). */
+function nearestDate(filings, dates) {
+  const ds = dates.map((d) => new Date(d).getTime());
+  return filings.map((f) => {
+    const t = new Date(f).getTime();
+    let best = dates[0], bestD = Infinity;
+    for (let i = 0; i < ds.length; i++) {
+      const dd = Math.abs(ds[i] - t);
+      if (dd < bestD) { bestD = dd; best = dates[i]; }
+    }
+    return best;
+  });
+}
+
+function markLines(data) {
+  const out = [];
+  if (data.stats.mu !== null) {
+    out.push({ yAxis: data.stats.mu,
+               label: { formatter: "μ", position: "insideEndTop" },
+               lineStyle: { color: "#e2e8f0", type: "dashed", width: 1 } });
+  }
+  if (data.series.length && data.filings.length) {
+    const dates = data.series.map((p) => p.date);
+    for (const d of nearestDate(data.filings, dates)) {
+      out.push({ xAxis: d,
+                 lineStyle: { color: "rgba(248,113,113,.55)", width: 2 },
+                 label: { show: false } });
+    }
+  }
+  return out.length ? { silent: true, symbol: "none", data: out } : undefined;
+}
+
+async function openDrawer(code) {
+  try {
+    const win = $("filter-window").value;
+    showDrawer(await jget(`/api/ticker/${code}?window=${win}`));
+  } catch (e) {
+    alert(`Gagal memuat ${code}: ${e.message}`);
+  }
+}
+
+/* ---------- wiring ---------- */
+
+$("drawer-close").addEventListener("click", () => {
+  $("drawer").classList.remove("open");
+  if (chart) chart.clear();
+});
+window.addEventListener("resize", () => chart && chart.resize());
+$("filter-window").addEventListener("change", load);
+let thrTimer = null;
+$("threshold").addEventListener("input", () => {
+  $("threshold-val").textContent =
+    parseFloat($("threshold").value).toFixed(2);
+  clearTimeout(thrTimer);
+  thrTimer = setTimeout(load, 250);   /* debounce slider refetches */
+});
+load();
+</script>
+</body>
+</html>
