@@ -46,7 +46,7 @@ def merge_prices(con, cfg, codes):
     for code in codes:
         rows = []
         try: rows = fetch_yahoo(code, cfg["yahoo_years"])
-        except Exception: pass
+        except (requests.RequestException, ValueError): pass
         src = "yahoo"
         if not rows:
             rows = fetch_arjum(code, key); src = "arjum"
