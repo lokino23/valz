@@ -1,0 +1,16 @@
+universe: []                 # filled by backfill.py --seed
+sector_map: {}               # ticker -> group; seeded manually/by script later
+groups:
+  bank:      {primary: pbv,      secondary: per}
+  financial: {primary: pbv,      secondary: per}
+  consumer:  {primary: per,      secondary: pbv}
+  general:   {primary: per,      secondary: pbv}
+  commodity: {primary: ev_ebitda, secondary: ps}
+  property:  {primary: pbv,      secondary: per}
+windows_days: {w3y: 756, w5y: 1260}
+min_coverage: 0.8
+filing_lag_days: 90
+winsor_pct: [0.01, 0.99]
+thresholds: {watch: -1.0, deep: -2.0}
+ca_overrides: []             # [{code: BBRI, date: "2024-06-10", mult: 0.83}]
+yahoo_years: 6
