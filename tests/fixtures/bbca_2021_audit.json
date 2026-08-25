@@ -1,0 +1,77 @@
+{
+ "code": "BBCA",
+ "periode": "audit",
+ "currency": "RUPIAH / IDR",
+ "period_end": "2021-12-31",
+ "sector": "bank",
+ "ann_factor": 1.0,
+ "annualization": {
+  "factor": 1.0,
+  "basis": "FY actual",
+  "preview": false,
+  "market_metric": "per_fy_actual"
+ },
+ "raw": {
+  "assets": 1228344680000000.0,
+  "liabilities": 1019773758000000.0,
+  "equity": 202712762000000.0,
+  "equity_parent": 202712762000000.0,
+  "equity_total": 202848934000000.0,
+  "non_controlling_interests": 136172000000.0,
+  "temporary_syirkah_funds": 5721988000000.0,
+  "equity_prior": 184714709000000.0,
+  "equity_parent_prior": 184714709000000.0,
+  "equity_total_prior": 184714709000000.0,
+  "non_controlling_interests_prior": 118383000000.0,
+  "net_income": 31422660000000.0,
+  "net_income_prior": 27131109000000.0,
+  "revenue": 65626976000000.0,
+  "revenue_tag": "InterestIncome",
+  "operating_profit": 38841174000000.0,
+  "cash": 177268685000000.0,
+  "ocf": 126186318000000.0,
+  "icf": -41247858000000.0,
+  "eps_filing": 255.0,
+  "dividend": 13732840000000.0
+ },
+ "recomputed": {
+  "net_margin_%": 47.9,
+  "margin_basis": "InterestIncome",
+  "roe_period_%": 16.2,
+  "roe_annualized_%": 16.2,
+  "roa_annualized_%": 2.6,
+  "der": 5.03,
+  "ni_yoy_%": 15.8
+ },
+ "market": {
+  "price": 6275,
+  "shares": 122042299500.0,
+  "shares_source": "accumulator_listed",
+  "shares_audit": {
+   "listed_shares": 122042299500.0,
+   "xbrl_implied_shares": 123226117647.0,
+   "selected_vs_implied_%": -1.0
+  },
+  "market_cap": 765815429362500.0,
+  "eps_annualized": 257.5,
+  "per_annualized": 24.4,
+  "earnings_basis": "per_fy_actual",
+  "bvps": 1661.0,
+  "pbv": 3.78,
+  "rev_per_share": 537.7,
+  "cash_per_share": 1452.5,
+  "dps_period": 112.5,
+  "div_yield_period_%": 1.79,
+  "payout_vs_ann_ni_%": 43.7,
+  "dividend_note": "kas dividen dibayar periode ini (sering laba thn sebelumnya) -> indikatif"
+ },
+ "checks": [
+  {
+   "status": "ok",
+   "check": "currency",
+   "detail": "RUPIAH / IDR"
+  }
+ ],
+ "verdict": "PASS",
+ "summary": "PASS: 0 fail, 0 warn dari 1 cek"
+}
