@@ -35,6 +35,15 @@
   #threshold-val { min-width: 44px; color: var(--accent); font-weight: 600; }
   .facts { margin-left: auto; font-size: 12px; color: var(--muted); }
   .facts b { color: var(--text); font-weight: 600; }
+  #refresh-btn {
+    background: var(--bg); color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 6px;
+    padding: 4px 11px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  #refresh-btn:disabled { opacity: .55; cursor: progress; }
+  #refresh-btn.running { color: #fbbf24; border-color: #fbbf24; }
+  #refresh-btn.error { color: var(--danger); border-color: var(--danger); }
+  #refresh-status { font-size: 11px; color: var(--muted); margin-left: 6px; }
   main { padding: 16px 20px 40px; }
   table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; }
   thead th {
@@ -85,6 +94,8 @@
   <label for="threshold">Threshold</label>
   <input type="range" id="threshold" min="-3.0" max="-0.5" step="0.25" value="-1.0">
   <span id="threshold-val">-1.00</span>
+  <button id="refresh-btn" type="button" title="Refresh harga + hitung ulang z-score">Refresh</button>
+  <span id="refresh-status"></span>
   <div class="facts">
     source <b id="fact-source">–</b> · as_of <b id="fact-asof">–</b>
     · <span id="fact-counts">–</span>
@@ -310,6 +321,63 @@ $("threshold").addEventListener("input", () => {
   clearTimeout(thrTimer);
   thrTimer = setTimeout(load, 250);   /* debounce slider refetches */
 });
+
+/* ---------- refresh button ---------- */
+
+const refreshBtn = $("refresh-btn");
+const refreshStatus = $("refresh-status");
+
+let setRefreshState = (state) => {
+  refreshBtn.classList.remove("running", "error");
+  if (state.running) {
+    refreshBtn.classList.add("running");
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "Refreshing…";
+    refreshStatus.textContent = state.started_at ? `started ${state.started_at}` : "";
+    return;
+  }
+  refreshBtn.disabled = false;
+  refreshBtn.textContent = "Refresh";
+  if (state.error) {
+    refreshBtn.classList.add("error");
+    refreshStatus.textContent = `error: ${state.error}`;
+    return;
+  }
+  if (state.finished_at) {
+    const r = state.result || {};
+    const prices = r.prices || {};
+    const nCodes = Object.keys(prices).length;
+    const compute = r.compute || {};
+    refreshStatus.textContent =
+      `done ${state.finished_at} · ${nCodes} codes · ok ${compute.ok ?? "–"}`;
+    if (r.compute) load();            /* pick up new stats on successful run */
+    return;
+  }
+  refreshStatus.textContent = "";
+}
+
+async function pollRefresh() {
+  try {
+    const b = await jget("/api/refresh/status");
+    setRefreshState(b.state);
+  } catch (_) { /* server unreachable; stay calm */ }
+}
+
+refreshBtn.addEventListener("click", async () => {
+  if (refreshBtn.disabled) return;
+  try {
+    const b = await (await fetch("/api/refresh", { method: "POST" })).json();
+    if (!b.ok) throw new Error("refresh refused");
+    setRefreshState(b.state);
+  } catch (e) {
+    setRefreshState({ running: false, error: e.message,
+                      finished_at: null, result: null });
+  }
+});
+
+let pollTimer = setInterval(pollRefresh, 1000);
+pollRefresh();
+
 load();
 </script>
 </body>
