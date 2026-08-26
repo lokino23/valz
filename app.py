@@ -1,9 +1,10 @@
-"""valz read-only API: /api/screen, /api/ticker/{code}, /api/meta (Task 10).
+"""valz API: /api/screen, /api/ticker/{code}, /api/meta, plus the desktop
+refresh endpoints POST /api/refresh + GET /api/refresh/status.
 
 Design notes:
-- ``create_app(db_path=None, cfg=None)`` factory; module-level ``app`` is the
-  uvicorn entry. Construction never opens sqlite, so request-time validation
-  is observable against a nonexistent db file (422-before-db contract).
+- ``create_app(db_path=None, cfg=None, refresher=None)`` factory; module-level
+  ``app`` is the uvicorn entry. Construction never opens sqlite, so request-time
+  validation is observable against a nonexistent db file (422-before-db contract).
 - All endpoints are strictly read-only and null-safe by design: malformed or
   missing data yields nulls / skips, never a 500 from data shape.
 - ``source``: distinct non-null ``prices.source`` over the codes represented
@@ -24,9 +25,10 @@ from fastapi.staticfiles import StaticFiles
 from compute import VAR_COLS, group_of, group_primary
 from config import load_config
 from db import connect
+from refresher import Refresher
 from zstats import streak
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 NO_DATA_AS_OF = "Tanggal data tidak tersedia"
 
 
@@ -62,13 +64,15 @@ def _ratios(frows):
     return out
 
 
-def create_app(db_path=None, cfg=None):
+def create_app(db_path=None, cfg=None, refresher=None):
     if cfg is None:
         # mirror the CLI: honor a repo-local/deployed config.yaml when present
         cfg = load_config("config.yaml" if os.path.exists("config.yaml")
                           else None)
     if db_path is None:
         db_path = "data/valz.db"
+    # construction never opens sqlite: Refresher only stores path + config
+    refresher = refresher or Refresher(db_path, cfg)
 
     app = FastAPI(title="valz", version=VERSION)
 
@@ -211,6 +215,17 @@ def create_app(db_path=None, cfg=None):
         finally:
             con.close()
 
+    @app.post("/api/refresh")
+    def refresh_start():
+        # started=False means a refresh is already in flight (still 200:
+        # callers just poll /api/refresh/status either way)
+        return {"ok": True, "started": refresher.start(),
+                "state": refresher.snapshot()}
+
+    @app.get("/api/refresh/status")
+    def refresh_status():
+        return {"ok": True, "state": refresher.snapshot()}
+
     @app.get("/api/meta")
     def meta():
         con = _open()
@@ -229,6 +244,8 @@ def create_app(db_path=None, cfg=None):
                     "version": VERSION}
         finally:
             con.close()
+
+    app.state.refresher = refresher
 
     # static ui mounted last so /api/* routes keep precedence
     static_dir = pathlib.Path(__file__).parent / "static"

@@ -224,4 +224,4 @@ def test_meta_contract(client):
     assert b["last_compute"] == "2026-08-26T00:00:00"
     assert b["universe_count"] == 5         # distinct codes in stats
     assert b["coverage"] == {"ok": 4, "issues": 1}
-    assert b["version"] == "0.1.0"
+    assert b["version"] == "0.2.0"
