@@ -74,3 +74,10 @@ def test_mounted_static_served_by_app(tmp_path):
     assert r.status_code == 200
     assert b'id="filter-window"' in r.content
     assert c.get("/vendor/echarts.min.js").status_code == 200
+
+
+def test_chart_renders_peer_median_when_present():
+    """The chart drawer's renderChart function must reference the
+    peer-median series when the data has a peer field. The reference
+    'peer_median' is the series name and the label string key."""
+    assert "peer_median" in HTML

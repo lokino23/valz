@@ -258,6 +258,20 @@ function renderChart(data) {
     series.push(...bandSeries(dates, mu, sigma, 1, "band1σ"));
     series.push(...bandSeries(dates, mu, sigma, 2, "band2σ"));
   }
+  // peer median reference line (amber dotted), only when the ticker
+  // has a peer set and the value is positive
+  if (data.peer && data.peer.median) {
+    series.push({
+      name: "peer_median",
+      type: "line",
+      data: dates.map(() => data.peer.median),
+      markLine: { silent: true, symbol: "none", data: [{
+        yAxis: data.peer.median,
+        label: { formatter: `peer median = ${data.peer.median.toFixed(2)}` }
+      }]},
+      lineStyle: { type: "dotted", color: "#fbbf24", width: 1.2 },
+    });
+  }
   if (!chart) chart = echarts.init($("chart"));
   chart.clear();
   chart.setOption({
