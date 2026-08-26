@@ -51,7 +51,7 @@ def _latest_value_now(con, code, primary_var_col):
     return float(row[0])
 
 
-def _latest_mu(con, code, primary_var_col):
+def _latest_mu(con, code):
     """Read the latest mu (mean) for `code` from the stats table.
 
     Returns float or None if no data.
@@ -124,7 +124,7 @@ def peer_stats_for(cfg, db_path, code):
             self_pctile = None
 
         # high_base_warning: ticker's own 5y mean is > 1.5 × peer median.
-        own_mu = _latest_mu(con, code, col)
+        own_mu = _latest_mu(con, code)
         high_base_warning = bool(
             own_mu is not None and median > 0 and own_mu > 1.5 * median
         )

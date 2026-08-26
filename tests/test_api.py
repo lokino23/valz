@@ -402,7 +402,7 @@ def test_ticker_peer_is_null_for_non_member(client_with_peers):
     be null. (CCC is also not in any group -- this is the EEE branch.)"""
     b = client_with_peers.get("/api/ticker/EEE?window=w5y").json()
     assert b["ok"] is True
-    assert b.get("peer") is None
+    assert "peer" in b and b["peer"] is None
 
 
 def test_screen_rows_include_peer_per_row(client_with_peers):
