@@ -42,9 +42,15 @@ Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Dist
 $Log = Join-Path $Root 'build.log'
 if (Test-Path $Log) { Remove-Item -Force $Log }
 
-# 3) run PyInstaller
+# 3) run PyInstaller. Redirect both streams to a file (PyInstaller logs to
+#    stderr; PowerShell treats NativeCommandError on stderr as a fatal
+#    error under $ErrorActionPreference='Stop', so we silence that).
 Write-Host "Building with PyInstaller..." -ForegroundColor Cyan
-& $Py -m PyInstaller $Spec --noconfirm --clean 2>&1 | Tee-Object -FilePath $Log | Select-Object -Last 5
+& $Py -m PyInstaller $Spec --noconfirm --clean *> $Log
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller exited with code $LASTEXITCODE. See $Log."
+}
+Select-String -Path $Log -Pattern 'Build complete' | Select-Object -Last 1
 
 # 4) sanity-check the exe exists
 $Exe = Join-Path $Dist 'valz\valz.exe'
