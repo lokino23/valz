@@ -70,7 +70,7 @@ def peer_stats_for(cfg, db_path, code):
     or fewer than 2 peers have data.
 
     `high_base_warning` is True when the ticker's own 5y mean is
-    > 1.5 Ã— peer_median_current. This flags the AMRT-like failure
+    > 1.5 × peer_median_current. This flags the AMRT-like failure
     mode where a "deep_undervalued" z-score against a stale mean
     is misleading vs sector peers.
     """
@@ -123,7 +123,7 @@ def peer_stats_for(cfg, db_path, code):
         else:
             self_pctile = None
 
-        # high_base_warning: ticker's own 5y mean is > 1.5 Ã— peer median.
+        # high_base_warning: ticker's own 5y mean is > 1.5 × peer median.
         own_mu = _latest_mu(con, code, col)
         high_base_warning = bool(
             own_mu is not None and median > 0 and own_mu > 1.5 * median
