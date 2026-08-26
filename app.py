@@ -32,7 +32,7 @@ from zstats import streak
 import valuation
 import peer
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 # DES (Daftar Efek Syariah) snapshot loader. The set is injected by the
 # factory so tests stay network-free; the on-disk fallback path is used in
