@@ -33,7 +33,7 @@ python3 compute.py
 
 # 5) serve
 echo 'IDX_MCP_URL=http://<homeserver-lan-ip>:8001/mcp' > .env
-docker compose up -d --build          # UI at http://<host>:8096
+docker compose up -d --build          # UI at http://<host>:8102
 
 # 6) nightly refresh (weekdays 19:05) — refresh.sh sources .env itself,
 #    so IDX_MCP_URL/ARJUM_API_KEY must live in ~/valz/src/.env

@@ -3,6 +3,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-EXPOSE 8096
+EXPOSE 8102
 # network_mode:host => bind all interfaces (LAN + Tailscale reachability)
-CMD ["uvicorn", "app:app", "--host", "[IP_ADDRESS]", "--port", "8096"]
+CMD ["uvicorn", "app:app", "--host", "[IP_ADDRESS]", "--port", "8102"]
