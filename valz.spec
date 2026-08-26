@@ -23,6 +23,8 @@ PAYLOAD = ROOT / "desktop" / "payload"
 
 # runtime data we want copied next to the binary (NOT into _internal)
 # - payload/* is the first-run snapshot copied into %LOCALAPPDATA%\valz
+# - valz/syaria/des_snapshot.json is the on-disk DES fallback loaded
+#   by app._load_syaria_default; without it every syaria field is null
 # - config.example.yaml + schema.sql are read at runtime by config.py /
 #   db.py via __file__-relative paths, so they must sit next to those
 #   modules in _internal/
@@ -34,12 +36,15 @@ if PAYLOAD.is_dir():
 for rel in ("config.example.yaml", "schema.sql", "static"):
     p = ROOT / rel
     if p.exists():
-        # static/ is a directory tree (index.html + vendor/echarts.min.js)
-        # -- pass it as a single tuple and let PyInstaller walk it.
         if p.is_dir():
             datas.append((str(p) + os.sep, "static"))
         else:
             datas.append((str(p), "."))
+# DES snapshot: keep the same relative path so _load_syaria_default's
+# first candidate resolves inside the bundle.
+syaria = ROOT / "valz" / "syaria" / "des_snapshot.json"
+if syaria.exists():
+    datas.append((str(syaria), "valz/syaria"))
 
 # uvicorn needs a few submodules to be present even when not statically
 # referenced; these hidden imports are the canonical list for our config.

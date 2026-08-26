@@ -20,6 +20,20 @@ def test_window_filter_select_with_both_windows():
     assert "w3y" in select and "w5y" in select
 
 
+def test_syaria_filter_select_with_three_modes():
+    _has('id="filter-syaria"')
+    select = HTML.split('id="filter-syaria"', 1)[1].split("</select>", 1)[0]
+    for opt in ('value="all"', 'value="only"', 'value="exclude"'):
+        assert opt in select, f"syaria select missing {opt}"
+
+
+def test_syaria_column_header_in_table():
+    """Syaria column must be in the header for the per-row badge to render."""
+    # between <thead> and </thead>
+    head = HTML.split('<thead>', 1)[1].split('</thead>', 1)[0]
+    assert '<th>Sy</th>' in head
+
+
 def test_threshold_slider_present():
     _has('id="threshold"')
 

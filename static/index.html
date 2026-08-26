@@ -44,6 +44,10 @@
   #refresh-btn.running { color: #fbbf24; border-color: #fbbf24; }
   #refresh-btn.error { color: var(--danger); border-color: var(--danger); }
   #refresh-status { font-size: 11px; color: var(--muted); margin-left: 6px; }
+  /* syaria */
+  .flag.syaria-yes { border-color: #34d399; color: #34d399; }
+  .flag.syaria-no  { border-color: #f87171; color: #f87171; }
+  .flag.syaria-unk  { border-color: #94a3b8; color: #94a3b8; }
   main { padding: 16px 20px 40px; }
   table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; }
   thead th {
@@ -94,6 +98,12 @@
   <label for="threshold">Threshold</label>
   <input type="range" id="threshold" min="-3.0" max="-0.5" step="0.25" value="-1.0">
   <span id="threshold-val">-1.00</span>
+  <label for="filter-syaria">Syaria</label>
+  <select id="filter-syaria" title="Filter by Daftar Efek Syariah">
+    <option value="exclude" selected>Exclude (non-syariah)</option>
+    <option value="all">All</option>
+    <option value="only">Only (syariah)</option>
+  </select>
   <button id="refresh-btn" type="button" title="Refresh harga + hitung ulang z-score">Refresh</button>
   <span id="refresh-status"></span>
   <div class="facts">
@@ -106,7 +116,7 @@
   <table id="tbl">
     <thead><tr>
       <th>Code</th><th>Group</th><th>Primary</th><th>Now</th><th>Mean</th>
-      <th>σ</th><th>Z</th><th>Disc%</th><th>Streak</th><th>Flags</th>
+      <th>σ</th><th>Z</th><th>Disc%</th><th>Streak</th><th>Sy</th><th>Flags</th>
     </tr></thead>
     <tbody></tbody>
   </table>
@@ -158,6 +168,13 @@ function renderRows(payload) {
     const flagHtml = (row.flags || []).map((f) =>
       `<span class="flag ${f}">${f}</span>`).join("")
       || '<span class="flag">–</span>';
+    // syaria column: 3-state (true/false/null -> ?/non/yes + colour)
+    const sy = row.syaria;
+    const syHtml = sy === true
+      ? '<span class="flag syaria-yes">✓</span>'
+      : sy === false
+        ? '<span class="flag syaria-no">✕</span>'
+        : '<span class="flag syaria-unk">?</span>';
     tr.innerHTML = `
       <td class="code">${row.code}</td>
       <td>${row.sector_group}</td>
@@ -168,6 +185,7 @@ function renderRows(payload) {
       <td>${fmt(row.z)}</td>
       <td>${row.disc_pct === null ? "–" : fmt(row.disc_pct, 1) + "%"}</td>
       <td>${row.streak_days}</td>
+      <td title="Syaria: ${sy === true ? 'ya' : sy === false ? 'tidak' : 'unknown'}">${syHtml}</td>
       <td>${flagHtml}</td>`;
     tr.addEventListener("click", () => openDrawer(row.code));
     tbody.appendChild(tr);
@@ -178,7 +196,8 @@ async function load() {
   try {
     const win = $("filter-window").value;
     const mz = $("threshold").value;
-    renderRows(await jget(`/api/screen?window=${win}&max_z=${mz}`));
+    const sy = $("filter-syaria").value;
+    renderRows(await jget(`/api/screen?window=${win}&max_z=${mz}&syaria=${sy}`));
   } catch (e) {
     $("empty-msg").hidden = false;
     $("empty-msg").textContent = `Gagal memuat: ${e.message}`;
@@ -314,6 +333,7 @@ $("drawer-close").addEventListener("click", () => {
 });
 window.addEventListener("resize", () => chart && chart.resize());
 $("filter-window").addEventListener("change", load);
+$("filter-syaria").addEventListener("change", load);
 let thrTimer = null;
 $("threshold").addEventListener("input", () => {
   $("threshold-val").textContent =
