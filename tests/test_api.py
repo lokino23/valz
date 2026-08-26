@@ -27,10 +27,13 @@ CFG = {
 
 ROW_KEYS = {"code", "sector_group", "primary_var", "value_now", "mean",
             "sigma", "z", "disc_pct", "streak_days", "roe_ttm", "rev_yoy",
-            "der", "flags"}
-SCREEN_KEYS = {"ok", "as_of", "source", "window", "counts", "rows", "issues"}
-TICKER_KEYS = {"ok", "meta", "stats", "filings", "series", "source", "as_of"}
-META_KEYS = {"ok", "last_compute", "universe_count", "coverage", "version"}
+            "der", "flags", "syaria"}
+SCREEN_KEYS = {"ok", "as_of", "source", "window", "syaria", "counts",
+               "rows", "issues"}
+TICKER_KEYS = {"ok", "meta", "stats", "filings", "series", "source",
+               "as_of", "syaria"}
+META_KEYS = {"ok", "last_compute", "universe_count", "coverage",
+             "syaria_codes", "version"}
 
 
 def _seed(p):
@@ -98,7 +101,11 @@ def _seed(p):
 def client(tmp_path):
     p = str(tmp_path / "api.db")
     _seed(p)
-    return TestClient(create_app(db_path=p, cfg=CFG))
+    # make syaria membership explicit in tests: AAA, BBB, DDD, EEE = syaria;
+    # CCC = non-syariah. Unknown codes (e.g. ticker not in set) = None.
+    return TestClient(create_app(
+        db_path=p, cfg=CFG,
+        syaria_set=frozenset({"AAA", "BBB", "DDD", "EEE"})))
 
 
 # ---------------------------------------------------------------- /api/screen
@@ -224,4 +231,4 @@ def test_meta_contract(client):
     assert b["last_compute"] == "2026-08-26T00:00:00"
     assert b["universe_count"] == 5         # distinct codes in stats
     assert b["coverage"] == {"ok": 4, "issues": 1}
-    assert b["version"] == "0.2.0"
+    assert b["version"] == "0.3.0"

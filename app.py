@@ -2,9 +2,10 @@
 refresh endpoints POST /api/refresh + GET /api/refresh/status.
 
 Design notes:
-- ``create_app(db_path=None, cfg=None, refresher=None)`` factory; module-level
-  ``app`` is the uvicorn entry. Construction never opens sqlite, so request-time
-  validation is observable against a nonexistent db file (422-before-db contract).
+- ``create_app(db_path=None, cfg=None, refresher=None, syaria_set=None)``
+  factory; module-level ``app`` is the uvicorn entry. Construction never opens
+  sqlite, so request-time validation is observable against a nonexistent db
+  file (422-before-db contract).
 - All endpoints are strictly read-only and null-safe by design: malformed or
   missing data yields nulls / skips, never a 500 from data shape.
 - ``source``: distinct non-null ``prices.source`` over the codes represented
@@ -28,7 +29,48 @@ from db import connect
 from refresher import Refresher
 from zstats import streak
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
+
+# DES (Daftar Efek Syariah) snapshot loader. The set is injected by the
+# factory so tests stay network-free; the on-disk fallback path is used in
+# production (homeserver, desktop bundle). A missing or malformed file
+# yields an empty set -- syaria-related fields then render as null rather
+# than crashing the screen response.
+_SYARIA_FILENAMES = ("data/des_snapshot.json", "../data/des_snapshot.json",
+                     "des_snapshot.json")
+
+
+def _load_syaria_default():
+    import json
+    for name in _SYARIA_FILENAMES:
+        if os.path.exists(name):
+            try:
+                with open(name, encoding="utf-8") as f:
+                    return frozenset((json.load(f) or {}).get("codes") or [])
+            except Exception:
+                return frozenset()
+    return frozenset()
+
+
+def _syaria_flag(syaria_set, code):
+    """True / False / None -- None when the snapshot is empty (caller
+    should not infer anything if we never loaded a DES list)."""
+    if not syaria_set:
+        return None
+    return code in syaria_set
+
+
+def _syaria_filter_ok(syaria_filter, syaria_flag):
+    """Apply ?syaria=only|exclude|all on a single row's flag."""
+    if syaria_filter == "all":
+        return True
+    if syaria_filter == "only":
+        return syaria_flag is True
+    if syaria_filter == "exclude":
+        return syaria_flag is False
+    return True    # unknown value: pass through (the 422 check catches it)
+
+
 NO_DATA_AS_OF = "Tanggal data tidak tersedia"
 
 
@@ -64,7 +106,7 @@ def _ratios(frows):
     return out
 
 
-def create_app(db_path=None, cfg=None, refresher=None):
+def create_app(db_path=None, cfg=None, refresher=None, syaria_set=None):
     if cfg is None:
         # mirror the CLI: honor a repo-local/deployed config.yaml when present
         cfg = load_config("config.yaml" if os.path.exists("config.yaml")
@@ -73,6 +115,8 @@ def create_app(db_path=None, cfg=None, refresher=None):
         db_path = "data/valz.db"
     # construction never opens sqlite: Refresher only stores path + config
     refresher = refresher or Refresher(db_path, cfg)
+    if syaria_set is None:
+        syaria_set = _load_syaria_default()
 
     app = FastAPI(title="valz", version=VERSION)
 
@@ -112,7 +156,10 @@ def create_app(db_path=None, cfg=None, refresher=None):
                 row["d"] or NO_DATA_AS_OF)
 
     @app.get("/api/screen")
-    def screen(window: str = "w5y", sector: str = "", max_z: str = "-1.0"):
+    def screen(window: str = "w5y", sector: str = "",
+               max_z: str = "-1.0", syaria: str = "all"):
+        if syaria not in ("all", "only", "exclude"):
+            raise HTTPException(422, f"invalid syaria: {syaria}")
         wdays = _window_days(window)
         mz = _max_z(max_z)
         min_cov = cfg.get("min_coverage", 0.8)
@@ -151,12 +198,16 @@ def create_app(db_path=None, cfg=None, refresher=None):
                 disc = ((val - mu) / mu * 100
                         if val is not None and mu is not None and mu > 0
                         else None)
+                sflag = _syaria_flag(syaria_set, s["code"])
+                if not _syaria_filter_ok(syaria, sflag):
+                    continue
                 ranked.append({
                     "code": s["code"], "sector_group": grp,
                     "primary_var": primary,
                     "value_now": val, "mean": mu, "sigma": sig, "z": z,
                     "disc_pct": disc,
                     "streak_days": streak(ser, mu, sig, watch),
+                    "syaria": sflag,
                     **_ratios(frows), "flags": flags})
             ranked.sort(key=lambda r: r["z"])
             issues = [{"code": r["code"], "reason": r["reason"]} for r in
@@ -165,7 +216,7 @@ def create_app(db_path=None, cfg=None, refresher=None):
                           " ORDER BY code")]
             source, as_of = _scope_facts(con, [r["code"] for r in ranked])
             return {"ok": True, "as_of": as_of, "source": source,
-                    "window": window,
+                    "window": window, "syaria": syaria,
                     "counts": {"ranked": len(ranked), "issues": len(issues)},
                     "rows": ranked, "issues": issues}
         finally:
@@ -210,6 +261,7 @@ def create_app(db_path=None, cfg=None, refresher=None):
                     "meta": {"code": code, "sector_group": grp,
                              "primary_var": gcfg["primary"],
                              "secondary_var": gcfg["secondary"]},
+                    "syaria": _syaria_flag(syaria_set, code),
                     "stats": stats_out, "filings": filings, "series": series,
                     "source": source, "as_of": as_of}
         finally:
@@ -241,6 +293,7 @@ def create_app(db_path=None, cfg=None, refresher=None):
                     "universe_count": len(stats_codes),
                     "coverage": {"ok": len(stats_codes) - len(issue_codes),
                                  "issues": len(issue_codes)},
+                    "syaria_codes": len(syaria_set),
                     "version": VERSION}
         finally:
             con.close()
