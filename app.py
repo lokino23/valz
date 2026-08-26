@@ -18,6 +18,7 @@ Design notes:
 """
 import os
 import pathlib
+import sys
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -42,8 +43,17 @@ _SYARIA_FILENAMES = ("valz/syaria/des_snapshot.json",
 
 
 def _load_syaria_default():
+    """Look in (in order): repo-relative paths, then sys._MEIPASS for
+    PyInstaller-bundled exes whose CWD is unrelated to the install dir.
+    Returns frozenset or empty frozenset on any failure.
+    """
     import json
-    for name in _SYARIA_FILENAMES:
+    candidates = list(_SYARIA_FILENAMES)
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(os.path.join(meipass, "valz/syaria/des_snapshot.json"))
+        candidates.append(os.path.join(meipass, "valz", "syaria", "des_snapshot.json"))
+    for name in candidates:
         if os.path.exists(name):
             try:
                 with open(name, encoding="utf-8") as f:
