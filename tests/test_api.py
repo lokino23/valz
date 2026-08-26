@@ -27,11 +27,11 @@ CFG = {
 
 ROW_KEYS = {"code", "sector_group", "primary_var", "value_now", "mean",
             "sigma", "z", "disc_pct", "streak_days", "roe_ttm", "rev_yoy",
-            "der", "flags", "syaria"}
+            "der", "flags", "syaria", "peer"}
 SCREEN_KEYS = {"ok", "as_of", "source", "window", "syaria", "counts",
                "rows", "issues"}
 TICKER_KEYS = {"ok", "meta", "stats", "filings", "series", "source",
-               "as_of", "syaria"}
+               "as_of", "syaria", "peer"}
 META_KEYS = {"ok", "last_compute", "universe_count", "coverage",
              "syaria_codes", "version"}
 
@@ -133,6 +133,23 @@ def seeded_db(client):
     con.commit()
     con.close()
     return client
+
+
+@pytest.fixture()
+def client_with_peers(tmp_path):
+    """Same seed as ``client`` but with ``peer_groups`` injected into
+    the cfg so we can exercise the ``peer`` field without touching
+    the deployed config. ``peer_groups: {consumer: [AAA, BBB, DDD]}``
+    leaves EEE and CCC outside any group -- giving us both the
+    "member" and "non-member" cases from the same fixture.
+    """
+    p = str(tmp_path / "peer.db")
+    _seed(p)
+    cfg_with_peers = {**CFG,
+        "peer_groups": {"consumer": ["AAA", "BBB", "DDD"]}}
+    return TestClient(create_app(
+        db_path=p, cfg=cfg_with_peers,
+        syaria_set=frozenset({"AAA", "BBB", "DDD", "EEE"})))
 
 
 # ---------------------------------------------------------------- /api/screen
@@ -361,3 +378,42 @@ def test_screen_with_valuation_true_nulls_for_not_valueable(client):
 def test_screen_invalid_with_valuation_value_422(client):
     r = client.get("/api/screen?with_valuation=yes-please")
     assert r.status_code == 422
+
+
+# ---------------------------------------------------- /api/ticker + /api/screen
+#                                              + peer field (Task 2 / v0.5.0)
+
+
+def test_ticker_includes_peer_field_for_member(client_with_peers):
+    """AAA is in the test peer group; the field should be present and
+    carry the expected shape (group, count, median, high_base_warning)."""
+    b = client_with_peers.get("/api/ticker/AAA?window=w5y").json()
+    assert b["ok"] is True
+    assert b.get("peer") is not None
+    p = b["peer"]
+    assert p["group"] == "consumer"
+    assert p["count"] >= 2
+    assert isinstance(p["median"], (int, float))
+    assert isinstance(p["high_base_warning"], bool)
+
+
+def test_ticker_peer_is_null_for_non_member(client_with_peers):
+    """EEE is in no peer group in the test fixture; the field should
+    be null. (CCC is also not in any group -- this is the EEE branch.)"""
+    b = client_with_peers.get("/api/ticker/EEE?window=w5y").json()
+    assert b["ok"] is True
+    assert b.get("peer") is None
+
+
+def test_screen_rows_include_peer_per_row(client_with_peers):
+    """Each ranked row gets a peer object (or null for non-members)."""
+    b = client_with_peers.get(
+        "/api/screen?window=w5y&max_z=-1.0").json()
+    assert b["rows"], "fixture must rank at least one code"
+    by_code = {r["code"]: r for r in b["rows"]}
+    # AAA is in the consumer peer group -> non-null peer object
+    assert by_code["AAA"].get("peer") is not None
+    assert by_code["AAA"]["peer"]["group"] == "consumer"
+    # EEE and CCC are not in any peer group -> null peer
+    assert by_code.get("EEE", {}).get("peer") is None
+    assert by_code.get("CCC", {}).get("peer") is None

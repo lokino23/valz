@@ -30,6 +30,7 @@ from db import connect
 from refresher import Refresher
 from zstats import streak
 import valuation
+import peer
 
 VERSION = "0.4.0"
 
@@ -301,6 +302,11 @@ def create_app(db_path=None, cfg=None, refresher=None, syaria_set=None):
                           "SELECT code, reason FROM coverage_issues"
                           " ORDER BY code")]
             source, as_of = _scope_facts(con, [r["code"] for r in ranked])
+            # peer snapshot stats: null for codes not in any peer_groups
+            # (or with < 2 peers with data). Single loop covers both the
+            # with_valuation and default return paths.
+            for r in ranked:
+                r["peer"] = peer.peer_stats_for(cfg, str(db_path), r["code"])
 
             if with_valuation:
                 _decorate_with_valuation(ranked, con, cfg)
@@ -358,7 +364,8 @@ def create_app(db_path=None, cfg=None, refresher=None, syaria_set=None):
                              "secondary_var": gcfg["secondary"]},
                     "syaria": _syaria_flag(syaria_set, code),
                     "stats": stats_out, "filings": filings, "series": series,
-                    "source": source, "as_of": as_of}
+                    "source": source, "as_of": as_of,
+                    "peer": peer.peer_stats_for(cfg, str(db_path), code)}
         finally:
             con.close()
 
