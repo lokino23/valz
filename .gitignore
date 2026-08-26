@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.venv-build/
 .pytest_cache/
 
 # Env & secrets
@@ -20,6 +21,11 @@ data/
 Thumbs.db
 .DS_Store
 tmp/
+
+# Build artefacts (PyInstaller onedir + zip)
+build/
+dist/
+build.log
 
 # SDD workspace (subagent-driven development ledger)
 .superpowers/
