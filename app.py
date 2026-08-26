@@ -36,7 +36,8 @@ VERSION = "0.3.0"
 # production (homeserver, desktop bundle). A missing or malformed file
 # yields an empty set -- syaria-related fields then render as null rather
 # than crashing the screen response.
-_SYARIA_FILENAMES = ("data/des_snapshot.json", "../data/des_snapshot.json",
+_SYARIA_FILENAMES = ("valz/syaria/des_snapshot.json",
+                     "data/des_snapshot.json", "../data/des_snapshot.json",
                      "des_snapshot.json")
 
 
