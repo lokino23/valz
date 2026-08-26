@@ -192,3 +192,45 @@ def test_module_imports_without_spinning_up_server():
     import threading
     assert "desktop" in __import__("sys").modules
     assert not any(t.name == "valz-server" for t in threading.enumerate())
+
+
+# ---------------------------------- _install_log_redirection
+
+def test_install_log_redirection_writes_banner_without_stdout_change(
+        fake_paths):
+    """Windowed PyInstaller: sys.stdout is None, but the banner must still
+    land in APP_DIR/valz.log and we must NOT swap sys.stdout to a custom
+    handle (that was the old behaviour, and it broke uvicorn's DefaultFormatter
+    in 0.41 because the file handle's isatty still trips a downstream
+    dictConfig path)."""
+    import sys as _sys
+    saved_out, saved_err = _sys.stdout, _sys.stderr
+    _sys.stdout, _sys.stderr = None, None
+    try:
+        desktop._install_log_redirection()
+        log = fake_paths / "valz.log"
+        assert log.exists()
+        content = log.read_text(encoding="utf-8")
+        assert "valz desktop launcher started" in content
+        # critical: stdout/stderr stay None, no rogue file-handle swap
+        assert _sys.stdout is None and _sys.stderr is None
+    finally:
+        _sys.stdout, _sys.stderr = saved_out, saved_err
+
+
+def test_uvicorn_log_config_uses_stdlib_formatter_not_default(fake_paths):
+    """The config must use ``"format"`` (stdlib logging.Formatter), NOT
+    ``"()"`` pointing at ``uvicorn.logging.DefaultFormatter``. Otherwise
+    uvicorn rebuilds the broken isatty path during dictConfig."""
+    cfg = desktop._uvicorn_log_config()
+    for name, fmt in cfg["formatters"].items():
+        assert "()" not in fmt, f"formatters[{name}] uses () -- DefaultFormatter"
+        assert "format" in fmt, f"formatters[{name}] missing 'format' key"
+    for name, h in cfg["handlers"].items():
+        assert h["class"] == "logging.FileHandler"
+        # filename resolves under APP_DIR/valz.log, not the repo
+        assert h["filename"].endswith("valz.log")
+    # propagate=False so the FileHandler is the only sink -- no propagation
+    # back to a None-stdout root logger that would silently drop messages.
+    for name in ("uvicorn", "uvicorn.access"):
+        assert cfg["loggers"][name]["propagate"] is False

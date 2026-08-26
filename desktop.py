@@ -173,19 +173,74 @@ def make_app():
 
 
 def _install_log_redirection():
-    """Windowed PyInstaller exes lose their console; reroute to a log file
-    so launcher crashes don't disappear silently into a black box.
+    """Windowed PyInstaller exes have no console. uvicorn's default
+    log_config routes every log line through ``DefaultFormatter`` which
+    peeks at ``sys.stdout.isatty()`` during ``dictConfig`` -- on a
+    windowed launcher that's either None or a non-TTY file handle, and
+    crashes the configure step with
+    ``AttributeError: 'NoneType' object has no attribute 'isatty'``.
 
-    Skipped when stdout already has a real terminal (dev mode).
+    Workaround: don't touch sys.stdout at all, and bypass uvicorn's
+    log_config entirely with a hand-rolled config that uses standard
+    ``logging.FileHandler`` + ``logging.Formatter`` (no isatty probe).
+    The launcher banner is written directly with a plain file write so
+    it shows up even if the rest of the log config is later disabled.
+
+    In dev mode (real TTY) we keep stdout untouched so prints still work.
     """
-    if sys.stdout is not None and getattr(sys.stdout, "isatty", lambda: False)():
-        return
-    log_path = APP_DIR / "valz.log"
     APP_DIR.mkdir(parents=True, exist_ok=True)
-    fh = open(log_path, "a", encoding="utf-8")
-    sys.stdout = fh
-    sys.stderr = fh
-    print(f"--- valz desktop launcher started {_dt.datetime.now().isoformat()} ---")
+    log_path = APP_DIR / "valz.log"
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(f"--- valz desktop launcher started "
+                f"{_dt.datetime.now().isoformat()} ---\n")
+
+
+def _uvicorn_log_config():
+    """A log_config that uses stdlib FileHandler + Formatter (no isatty).
+
+    Mirrors uvicorn.config.LOGGING_CONFIG shape but with ``"format"`` (not
+    ``"()"``) so ``dictConfig`` picks stdlib ``logging.Formatter`` instead
+    of ``uvicorn.logging.DefaultFormatter``. This sidesteps the
+    isatty-on-stdout crash entirely.
+    """
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+            "access": {
+                "format": "%(asctime)s [%(levelname)s] %(name)s: "
+                          "%(client_addr)s - \"%(request_line)s\" %(status_code)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+        },
+        "handlers": {
+            "default": {
+                "class": "logging.FileHandler",
+                "formatter": "default",
+                "filename": str(APP_DIR / "valz.log"),
+                "mode": "a",
+                "encoding": "utf-8",
+            },
+            "access": {
+                "class": "logging.FileHandler",
+                "formatter": "access",
+                "filename": str(APP_DIR / "valz.log"),
+                "mode": "a",
+                "encoding": "utf-8",
+            },
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": "INFO",
+                        "propagate": False},
+            "uvicorn.error": {"level": "INFO"},
+            "uvicorn.access": {"handlers": ["access"], "level": "INFO",
+                               "propagate": False},
+        },
+    }
 
 
 def main():
@@ -228,6 +283,9 @@ def main():
         ws="none",
         lifespan="on",
         factory=True,
+        # custom log_config bypasses uvicorn.logging.DefaultFormatter's
+        # sys.stdout.isatty() probe; see _uvicorn_log_config().
+        log_config=_uvicorn_log_config(),
     )
     server = uvicorn.Server(cfg_obj)
 
