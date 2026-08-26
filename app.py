@@ -100,6 +100,56 @@ def _mos_label(mos_pct):
     return "overvalued"
 
 
+def _decorate_with_valuation(rows, con, cfg):
+    """Add a per-row ``valuation`` field. Reads fundamentals + shares for
+    each code, calls into valuation.py. Cheap because rows are
+    pre-z-filtered and we share a single connection.
+    """
+    for r in rows:
+        code = r["code"]
+        filings = con.execute(
+            "SELECT year, periode, period_end, currency, revenue,"
+            " net_income FROM fundamentals WHERE code=?"
+            " ORDER BY period_end DESC", (code,)).fetchall()
+        if not filings:
+            r["valuation"] = None
+            continue
+        if filings[0]["currency"] != "IDR":
+            r["valuation"] = None
+            continue
+        shares_row = con.execute(
+            "SELECT listed_shares FROM shares_history"
+            " WHERE code=? AND listed_shares>0"
+            " ORDER BY date DESC LIMIT 1", (code,)).fetchone()
+        shares = float(shares_row["listed_shares"]) if shares_row else 0
+        eps = valuation.eps_ttm_from_filings(
+            [dict(f) for f in filings], shares)
+        if eps["eps_ttm"] is None:
+            r["valuation"] = None
+            continue
+        growth_info = valuation.auto_growth([dict(f) for f in filings])
+        g_value = (growth_info["growth"]
+                   if growth_info["growth"] is not None else 0.0)
+        graham = valuation.compute_graham(
+            eps_ttm=eps["eps_ttm"], growth=g_value,
+            bond_yield=0.065)         # use config default; endpoint
+                                       # already covers overrides
+        if graham["graham_value"] is None:
+            r["valuation"] = None
+            continue
+        price_row = con.execute(
+            "SELECT close FROM prices WHERE code=?"
+            " ORDER BY date DESC LIMIT 1", (code,)).fetchone()
+        price = float(price_row["close"]) if price_row else None
+        mos_pct = ((graham["graham_value"] - price) / graham["graham_value"] * 100
+                   if price else None)
+        r["valuation"] = {
+            "intrinsic_value": graham["graham_value"],
+            "mos_pct": mos_pct,
+            "mos_label": _mos_label(mos_pct),
+        }
+
+
 NO_DATA_AS_OF = "Tanggal data tidak tersedia"
 
 
@@ -186,9 +236,16 @@ def create_app(db_path=None, cfg=None, refresher=None, syaria_set=None):
 
     @app.get("/api/screen")
     def screen(window: str = "w5y", sector: str = "",
-               max_z: str = "-1.0", syaria: str = "all"):
+               max_z: str = "-1.0", syaria: str = "all",
+               with_valuation: bool = False):
         if syaria not in ("all", "only", "exclude"):
             raise HTTPException(422, f"invalid syaria: {syaria}")
+        # boolean coercion: accept only "true" / "1" / "false" / "0"
+        if isinstance(with_valuation, str):
+            if with_valuation.lower() not in ("true", "false", "1", "0"):
+                raise HTTPException(
+                    422, f"invalid with_valuation: {with_valuation!r}")
+            with_valuation = with_valuation.lower() in ("true", "1")
         wdays = _window_days(window)
         mz = _max_z(max_z)
         min_cov = cfg.get("min_coverage", 0.8)
@@ -244,6 +301,15 @@ def create_app(db_path=None, cfg=None, refresher=None, syaria_set=None):
                           "SELECT code, reason FROM coverage_issues"
                           " ORDER BY code")]
             source, as_of = _scope_facts(con, [r["code"] for r in ranked])
+
+            if with_valuation:
+                _decorate_with_valuation(ranked, con, cfg)
+                return {"ok": True, "as_of": as_of, "source": source,
+                        "window": window, "syaria": syaria,
+                        "with_valuation": True,
+                        "counts": {"ranked": len(ranked),
+                                   "issues": len(issues)},
+                        "rows": ranked, "issues": issues}
             return {"ok": True, "as_of": as_of, "source": source,
                     "window": window, "syaria": syaria,
                     "counts": {"ranked": len(ranked), "issues": len(issues)},

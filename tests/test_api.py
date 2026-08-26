@@ -315,3 +315,49 @@ def test_valuation_endpoint_explicit_overrides_apply(seeded_db):
     assert b["inputs"]["growth_source"] == "query"
     assert b["inputs"]["bond_yield"] == 0.07
     assert b["inputs"]["bond_yield_source"] == "query"
+
+
+# ----------------------------------------- /api/screen?with_valuation=true --
+
+
+def test_screen_with_valuation_default_off(client):
+    """By default the screen rows must NOT carry a valuation field --
+    back-compat with v0.3.0 callers."""
+    b = client.get("/api/screen").json()
+    for r in b["rows"]:
+        assert "valuation" not in r
+
+
+def test_screen_with_valuation_true_adds_field(seeded_db):
+    """``with_valuation=true`` embeds a ``valuation`` object on each row.
+    Uses ``seeded_db`` (adds ``shares_history``) so AAA's positive-NI
+    filings produce a populated valuation -- the default ``client``
+    fixture has no shares rows and would yield only null valuations.
+    """
+    b = seeded_db.get("/api/screen?with_valuation=true").json()
+    assert b["with_valuation"] is True
+    # At least one row should have a populated valuation (AAA has
+    # positive NI in the seed)
+    with_val = [r for r in b["rows"] if r.get("valuation")]
+    assert with_val, "expected at least one row with a valuation"
+    sample = with_val[0]["valuation"]
+    assert sample["intrinsic_value"] is not None
+    assert sample["mos_pct"] is not None
+    assert sample["mos_label"] in {
+        "deep_undervalued", "actionable", "modest_discount",
+        "fair", "overvalued"}
+
+
+def test_screen_with_valuation_true_nulls_for_not_valueable(client):
+    """Default ``client`` has no ``shares_history`` rows, so every
+    screener row is "not valueable" (eps_ttm_from_filings returns
+    ``no_shares``). The field must still exist on every row -- callers
+    rely on a stable schema, not on every value being populated."""
+    b = client.get("/api/screen?with_valuation=true").json()
+    for r in b["rows"]:
+        assert "valuation" in r     # present (even if null)
+
+
+def test_screen_invalid_with_valuation_value_422(client):
+    r = client.get("/api/screen?with_valuation=yes-please")
+    assert r.status_code == 422
