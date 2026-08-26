@@ -20,3 +20,27 @@ valuation:
   # the caller does not pass ?bond_yield=. Update quarterly.
   # Range constraint: (0, 0.5).
   bond_yield_default: 0.065
+# Peer groups for sector-relative comparison. Each ticker in a group
+# gets a `peer` field on the /api/ticker and /api/screen responses
+# (median / p25 / p75 / pctile / high_base_warning). Tickers not in any
+# group are unaffected. Keep groups small (3-8 tickers) so the median
+# is meaningful.
+peer_groups:
+  retail:    # Alfamart, Ace Hardware, Mitra Adiperkasa
+    - AMRT
+    - ACES
+    - MAPI
+  food:      # Consumer staples / branded food
+    - INDF
+    - ICBP
+    - UNVR
+    - MYOR
+    - SIDO
+  telco:
+    - TLKM
+    - ISAT
+    - EXCL
+  tobacco:
+    - GGRM
+    - HMSP
+  # extend as needed; tickers not in any group get peer=null in the API
