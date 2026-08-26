@@ -172,7 +172,24 @@ def make_app():
     return create_app(db_path=str(db_path), cfg=cfg)
 
 
+def _install_log_redirection():
+    """Windowed PyInstaller exes lose their console; reroute to a log file
+    so launcher crashes don't disappear silently into a black box.
+
+    Skipped when stdout already has a real terminal (dev mode).
+    """
+    if sys.stdout is not None and getattr(sys.stdout, "isatty", lambda: False)():
+        return
+    log_path = APP_DIR / "valz.log"
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    fh = open(log_path, "a", encoding="utf-8")
+    sys.stdout = fh
+    sys.stderr = fh
+    print(f"--- valz desktop launcher started {_dt.datetime.now().isoformat()} ---")
+
+
 def main():
+    _install_log_redirection()
     user_data_dir()
     seed_first_run()
     load_env_file()

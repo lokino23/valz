@@ -31,17 +31,24 @@ if PAYLOAD.is_dir():
     for f in PAYLOAD.iterdir():
         if f.is_file():
             datas.append((str(f), "payload"))
-for rel in ("config.example.yaml", "schema.sql"):
+for rel in ("config.example.yaml", "schema.sql", "static"):
     p = ROOT / rel
     if p.exists():
-        datas.append((str(p), "."))
+        # static/ is a directory tree (index.html + vendor/echarts.min.js)
+        # -- pass it as a single tuple and let PyInstaller walk it.
+        if p.is_dir():
+            datas.append((str(p) + os.sep, "static"))
+        else:
+            datas.append((str(p), "."))
 
 # uvicorn needs a few submodules to be present even when not statically
 # referenced; these hidden imports are the canonical list for our config.
 hiddenimports = [
-    # valz app modules -- uvicorn loads them by string ("app:app") so
-    # PyInstaller's static analysis doesn't see the references.
+    # valz app modules -- uvicorn loads them by string ("app:app",
+    # "desktop:make_app") so PyInstaller's static analysis doesn't see
+    # the references and skips them without these explicit hints.
     "app", "config", "db", "compute", "zstats", "refresher", "prices",
+    "desktop",
     "uvicorn.logging",
     "uvicorn.loops",
     "uvicorn.loops.auto",
@@ -95,7 +102,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,                    # upx is rarely present and trips AV
-    console=True,                 # TEMP: debug console visibility
+    console=False,                # GUI launcher; no console window
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
