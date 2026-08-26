@@ -90,3 +90,95 @@ def compute_graham(eps_ttm, growth, bond_yield):
         return out
     out["graham_value"] = eps_ttm * (8.5 + 2 * growth) * 4.4 / bond_yield
     return out
+
+
+# TTM selector: prefer 4-quarter average, fall back to single annual.
+AVERAGE_FILINGS = 4
+
+# Growth clamp bounds -- Graham's own formula caps g at 10%; we widen
+# the upper bound to 20% to let quality compounders through, and floor
+# at -5% so a mildly declining top line still produces a number.
+GROWTH_CLAMP_MIN, GROWTH_CLAMP_MAX = -0.05, 0.20
+
+
+def _filings_by_period(filings):
+    """Group filings by (year, periode) so we can pick the latest two
+    matching-period rows for rev_yoy. Filing periods are quasi-quarterly
+    ("tw1".."tw4") and annual ("audit"); we treat "audit" as its own
+    bucket and never mix quarterly with annual.
+    """
+    out = {}
+    for f in filings:
+        key = (f["year"], f["periode"])
+        out.setdefault(key, []).append(f)
+    # keep only the most recent per key (filings are pre-sorted DESC)
+    return {k: v[0] for k, v in out.items()}
+
+
+def _latest_pair(filings):
+    """Return (current, prior) with same year-1 / same periode.
+
+    Returns None if no such pair exists.
+    """
+    by_key = _filings_by_period(filings)
+    current = filings[0]                 # already DESC by period_end
+    cy, cp = current["year"], current["periode"]
+    prior = by_key.get((cy - 1, cp))
+    return (current, prior) if prior else None
+
+
+def eps_ttm_from_filings(filings, shares):
+    """Pure: pick TTM EPS from the filings list.
+
+    Tries the most recent ``AVERAGE_FILINGS`` rows if all are available;
+    falls back to the single most recent. Skips zero/negative NI per
+    row (a one-off restructuring loss shouldn't poison the average).
+    """
+    out = {"method": None, "filings_used": 0,
+           "currency": (filings[0]["currency"] if filings else None)}
+    if not filings or len(filings) < 1:
+        out["eps_ttm"] = None
+        out["reason"] = "insufficient_history"
+        return out
+    if not shares or shares <= 0:
+        out["eps_ttm"] = None
+        out["reason"] = "no_shares"
+        out["filings_used"] = len(filings)
+        return out
+
+    # take up to AVERAGE_FILINGS rows that have positive NI
+    usable = [f for f in filings[:AVERAGE_FILINGS] if f["net_income"]]
+    if not usable:
+        out["eps_ttm"] = None
+        out["reason"] = "insufficient_history"
+        return out
+
+    avg_ni = sum(f["net_income"] for f in usable) / len(usable)
+    out["eps_ttm"] = avg_ni / shares
+    out["method"] = ("4_filing_average" if len(usable) >= AVERAGE_FILINGS
+                     else "single_filing")
+    out["filings_used"] = len(usable)
+    return out
+
+
+def auto_growth(filings):
+    """Pull rev_yoy from the most-recent same-period pair, clamp to
+    ``[-GROWTH_CLAMP_MIN, GROWTH_CLAMP_MAX]`` (note the function name
+    uses a negative floor so the constant reads intuitively; the
+    comparison below uses the value as-is).
+    """
+    if not filings:
+        return {"growth": None, "source": "none", "clamped_from": None}
+    pair = _latest_pair(filings)
+    if not pair:
+        return {"growth": None, "source": "none", "clamped_from": None}
+    current, prior = pair
+    if not prior["revenue"] or prior["revenue"] <= 0:
+        return {"growth": None, "source": "none", "clamped_from": None}
+    raw = current["revenue"] / prior["revenue"] - 1.0
+    clamped = max(GROWTH_CLAMP_MIN, min(GROWTH_CLAMP_MAX, raw))
+    return {
+        "growth": clamped,
+        "source": "rev_yoy",
+        "clamped_from": (raw if clamped != raw else None),
+    }
