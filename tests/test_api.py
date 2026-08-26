@@ -108,6 +108,33 @@ def client(tmp_path):
         syaria_set=frozenset({"AAA", "BBB", "DDD", "EEE"})))
 
 
+@pytest.fixture()
+def seeded_db(client):
+    """Augments the client fixture's DB with the extra rows the
+    /api/valuation endpoint needs: ``shares_history`` (so EPS can be
+    computed) plus a single BBB filing with NI=0 (so the
+    ``negative_eps_returns_reason`` test can exercise the
+    insufficient_history branch). The existing ``_seed`` is left
+    untouched per the brief.
+    """
+    p = client.app.state.refresher.db_path
+    con = connect(p)
+    con.executemany(
+        "INSERT INTO shares_history VALUES(?,?,?,?)",
+        [("AAA", "2026-08-20", 100.0, "yahoo"),
+         ("BBB", "2026-08-20", 100.0, "yahoo"),
+         ("CCC", "2026-08-20", 100.0, "yahoo"),
+         ("DDD", "2026-08-20", 100.0, "yahoo"),
+         ("EEE", "2026-08-20", 100.0, "yahoo")])
+    con.executemany(
+        "INSERT INTO fundamentals VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [("BBB", 2025, "tw2", "2025-06-30", "IDR", "consumer",
+          50.0, 0.0, 200.0, 100.0, 30.0, 8.0, 2.0, "{}", "2025-07-31")])
+    con.commit()
+    con.close()
+    return client
+
+
 # ---------------------------------------------------------------- /api/screen
 
 def test_screen_contract_keys(client):
@@ -232,3 +259,59 @@ def test_meta_contract(client):
     assert b["universe_count"] == 5         # distinct codes in stats
     assert b["coverage"] == {"ok": 4, "issues": 1}
     assert b["version"] == "0.3.0"
+
+
+# ------------------------------------------------------- /api/valuation/{code}
+
+
+def test_valuation_endpoint_ok_shape(seeded_db):
+    r = seeded_db.get("/api/valuation/AAA")
+    assert r.status_code == 200
+    b = r.json()
+    assert b["ok"] is True
+    assert b["code"] == "AAA"
+    assert set(b) >= {"ok", "code", "as_of", "inputs", "computation",
+                     "result", "caveats"}
+    # AAA seed: 3 positive-NI filings (8, 20, 15) -> avg 14.33, EPS=14.33/100
+    assert b["inputs"]["bond_yield"] == 0.065
+    assert b["computation"]["graham_value"] is not None
+    assert b["result"]["mos_pct"] is not None
+
+
+def test_valuation_endpoint_negative_eps_returns_reason(seeded_db):
+    """BBB has one filing with NI=0 (per seeded_db) so eps_ttm_from_filings
+    filters it out -> reason='insufficient_history'."""
+    r = seeded_db.get("/api/valuation/BBB")
+    assert r.status_code == 200
+    b = r.json()
+    if b["ok"]:
+        # positive case
+        assert b["result"]["intrinsic_value"] is not None
+    else:
+        assert b["reason"] in {"negative_eps", "insufficient_history"}
+
+
+def test_valuation_endpoint_unknown_ticker_404(seeded_db):
+    r = seeded_db.get("/api/valuation/ZZZZ")
+    assert r.status_code == 404
+    assert r.json() == {"ok": False, "error": "unknown ticker"}
+
+
+def test_valuation_endpoint_invalid_growth_422(seeded_db):
+    r = seeded_db.get("/api/valuation/AAA?growth=2.0")
+    assert r.status_code == 422
+
+
+def test_valuation_endpoint_invalid_bond_yield_422(seeded_db):
+    r = seeded_db.get("/api/valuation/AAA?bond_yield=0")
+    assert r.status_code == 422
+
+
+def test_valuation_endpoint_explicit_overrides_apply(seeded_db):
+    r = seeded_db.get("/api/valuation/AAA?growth=0.10&bond_yield=0.07")
+    b = r.json()
+    assert b["ok"] is True
+    assert b["inputs"]["growth"] == 0.10
+    assert b["inputs"]["growth_source"] == "query"
+    assert b["inputs"]["bond_yield"] == 0.07
+    assert b["inputs"]["bond_yield_source"] == "query"

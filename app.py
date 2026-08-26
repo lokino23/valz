@@ -29,6 +29,7 @@ from config import load_config
 from db import connect
 from refresher import Refresher
 from zstats import streak
+import valuation
 
 VERSION = "0.3.0"
 
@@ -80,6 +81,23 @@ def _syaria_filter_ok(syaria_filter, syaria_flag):
     if syaria_filter == "exclude":
         return syaria_flag is False
     return True    # unknown value: pass through (the 422 check catches it)
+
+
+def _mos_label(mos_pct):
+    """Bucket a MOS% value into a human-readable tag.
+    Thresholds match Graham's 30%/50% rule of thumb.
+    """
+    if mos_pct is None:
+        return "unknown"
+    if mos_pct > 50:
+        return "deep_undervalued"
+    if mos_pct > 30:
+        return "actionable"
+    if mos_pct > 0:
+        return "modest_discount"
+    if mos_pct > -20:
+        return "fair"
+    return "overvalued"
 
 
 NO_DATA_AS_OF = "Tanggal data tidak tersedia"
@@ -288,6 +306,115 @@ def create_app(db_path=None, cfg=None, refresher=None, syaria_set=None):
     @app.get("/api/refresh/status")
     def refresh_status():
         return {"ok": True, "state": refresher.snapshot()}
+
+    @app.get("/api/valuation/{code}")
+    def valuation_endpoint(code: str,
+                          growth: str = "auto",
+                          bond_yield: str = None):
+        """Graham-classic intrinsic value + MOS% per ticker.
+
+        See docs/specs/2026-08-26-mos-valuation-design.md for the
+        full contract. Returns ``{ok: false, reason: ...}`` instead of
+        4xx for valueability skips (negative EPS, USD, etc.) so the
+        UI can render a "this ticker isn't valueable here" hint
+        without a separate error-handling branch.
+        """
+        g_value, by_value, g_source = valuation.validate_overrides(
+            growth, bond_yield)
+        con = _open()
+        try:
+            filings = con.execute(
+                "SELECT year, periode, period_end, currency, revenue,"
+                " net_income, equity FROM fundamentals WHERE code=?"
+                " ORDER BY period_end DESC", (code,)).fetchall()
+            if not filings:
+                return JSONResponse(status_code=404, content={
+                    "ok": False, "error": "unknown ticker"})
+            shares_row = con.execute(
+                "SELECT listed_shares FROM shares_history"
+                " WHERE code=? AND listed_shares>0"
+                " ORDER BY date DESC LIMIT 1", (code,)).fetchone()
+            shares = float(shares_row["listed_shares"]) if shares_row else 0
+            latest_price_row = con.execute(
+                "SELECT date, close FROM prices WHERE code=?"
+                " ORDER BY date DESC LIMIT 1", (code,)).fetchone()
+            as_of = (str(latest_price_row["date"])
+                     if latest_price_row else
+                     str(filings[0]["period_end"]))
+            current_price = (float(latest_price_row["close"])
+                             if latest_price_row else None)
+        finally:
+            con.close()
+
+        # currency check -- non-IDR tickers need separate handling
+        # (FX assumption, etc.) which is v0.5 work. For now: skip.
+        currency = filings[0]["currency"] if filings else None
+        if currency and currency != "IDR":
+            return {"ok": False, "reason": "usd_unsupported",
+                    "currency": currency, "code": code}
+
+        eps = valuation.eps_ttm_from_filings(
+            [dict(f) for f in filings], shares)
+        if eps["eps_ttm"] is None:
+            return {"ok": False, "reason": eps["reason"],
+                    "filings_used": eps["filings_used"],
+                    "code": code}
+
+        if g_value is None:                     # auto
+            growth_info = valuation.auto_growth(
+                [dict(f) for f in filings])
+            g_value = growth_info["growth"] if growth_info["growth"] is not None else 0.0
+            g_source = growth_info["source"]
+        else:
+            growth_info = {"clamped_from": None}
+
+        graham = valuation.compute_graham(
+            eps_ttm=eps["eps_ttm"], growth=g_value,
+            bond_yield=by_value)
+        if graham["graham_value"] is None:
+            return {"ok": False, "reason": graham["reason"],
+                    "code": code}
+
+        intrinsic = graham["graham_value"]
+        if current_price:
+            mos_pct = (intrinsic - current_price) / intrinsic * 100
+        else:
+            mos_pct = None
+
+        return {
+            "ok": True,
+            "code": code,
+            "as_of": as_of,
+            "inputs": {
+                "eps_ttm": eps["eps_ttm"],
+                "eps_method": eps["method"],
+                "filings_used": eps["filings_used"],
+                "growth": g_value,
+                "growth_source": g_source,
+                "growth_clamped_from": growth_info.get("clamped_from"),
+                "bond_yield": by_value,
+                "bond_yield_source": "config_default" if bond_yield is None
+                                       else "query",
+            },
+            "computation": {
+                "graham_formula": graham["formula"],
+                "graham_value": intrinsic,
+                "intrinsic_value": intrinsic,
+                "currency": "IDR",
+            },
+            "result": {
+                "current_price": current_price,
+                "current_price_date": as_of,
+                "mos_pct": mos_pct,
+                "mos_label": _mos_label(mos_pct),
+            },
+            "caveats": [
+                "Graham formula assumes stable earnings; cyclical/"
+                "distressed names are unreliable.",
+                "MOS% > 30 is the Graham 'actionable' threshold; "
+                "> 50 is high-conviction.",
+            ],
+        }
 
     @app.get("/api/meta")
     def meta():
