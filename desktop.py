@@ -157,6 +157,21 @@ def open_browser_when_ready(url, app_state, stop):
     # fall through on timeout: server is still starting; don't block it
 
 
+def make_app():
+    """ASGI factory invoked by uvicorn with ``factory=True``.
+
+    Built every worker startup so the app sees the just-seeded db_path +
+    cfg_path resolved against ``%LOCALAPPDATA%\\valz\\data`` rather than
+    the repo-relative defaults that ``app.create_app`` ships with.
+    """
+    from config import load_config
+    from app import create_app
+    db_path = DATA_DIR / "valz.db"
+    cfg_path = DATA_DIR / "config.yaml"
+    cfg = load_config(str(cfg_path) if cfg_path.exists() else None)
+    return create_app(db_path=str(db_path), cfg=cfg)
+
+
 def main():
     user_data_dir()
     seed_first_run()
@@ -185,14 +200,19 @@ def main():
         except Exception:
             pass    # best-effort; manual Refresh button is the fallback
 
-    cfg = uvicorn.Config(
-        "app:app", host=HOST, port=port,
+    # Use a factory so the running ASGI app sees the seeded db_path, not
+    # the relative "data/valz.db" default that app.create_app() assumes.
+    cfg_obj = uvicorn.Config(
+        "desktop:make_app", host=HOST, port=port,
         log_level="info", access_log=False,
-        # the loader picks up config.yaml next to the DB so cfg_path above
-        # is consistent with the read-only API's path resolution
-        ws="wsproto",
+        # disable websockets entirely: the valz API is HTTP-only and
+        # pulling in wsproto/websockets inflates the bundle and forces an
+        # extra pip dep that we don't otherwise need.
+        ws="none",
+        lifespan="on",
+        factory=True,
     )
-    server = uvicorn.Server(cfg)
+    server = uvicorn.Server(cfg_obj)
 
     stop = threading.Event()
     threading.Thread(target=open_browser_when_ready,

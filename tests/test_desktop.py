@@ -101,7 +101,10 @@ def test_load_env_file_no_file_is_silent(fake_paths):
 # ----------------------------------------------------------- pick_port
 
 def test_pick_port_skips_already_bound(monkeypatch):
-    """Reserve PORT_BASE, then pick_port must return a higher free port."""
+    """Reserve a high port, then pick_port must return a higher free port."""
+    # Use a high port range to avoid clashing with anything the live
+    # valz.exe smoke-test might leave in TIME_WAIT on 8103.
+    monkeypatch.setattr(desktop, "PORT_BASE", 18743)
     monkeypatch.setattr(desktop, "PORT_SCAN", 10)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((desktop.HOST, desktop.PORT_BASE))
@@ -117,6 +120,7 @@ def test_pick_port_skips_already_bound(monkeypatch):
 
 def test_pick_port_raises_when_all_taken(monkeypatch):
     """Exhaust the scan window with a held port at the top + bottom."""
+    monkeypatch.setattr(desktop, "PORT_BASE", 18753)
     monkeypatch.setattr(desktop, "PORT_SCAN", 2)
     s1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s1.bind((desktop.HOST, desktop.PORT_BASE))
