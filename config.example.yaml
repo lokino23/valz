@@ -14,3 +14,9 @@ winsor_pct: [0.01, 0.99]
 thresholds: {watch: -1.0, deep: -2.0}
 ca_overrides: []             # [{code: BBRI, date: "2024-06-10", mult: 0.83}]
 yahoo_years: 6
+valuation:
+  # Graham number Y parameter: current IDR AAA corporate bond yield.
+  # Used as the default for the /api/valuation/{code} endpoint when
+  # the caller does not pass ?bond_yield=. Update quarterly.
+  # Range constraint: (0, 0.5).
+  bond_yield_default: 0.065
