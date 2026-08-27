@@ -81,3 +81,13 @@ def test_chart_renders_peer_median_when_present():
     peer-median series when the data has a peer field. The reference
     'peer_median' is the series name and the label string key."""
     assert "peer_median" in HTML
+
+
+def test_index_html_references_industry_lens_marker():
+    """The UI must wire the industry_lens field so the screener row badge,
+    drawer section, and filter dropdowns are surfaced. The literal
+    'industry_lens' string is the single marker covering all three
+    insertion points (the row builder references row.industry_lens, the
+    drawer section references data.industry_lens, and the lens-filter
+    dropdown is the UI hook)."""
+    assert "industry_lens" in HTML

@@ -85,6 +85,32 @@
   .stats-row { display: flex; gap: 26px; margin: 10px 0 4px; flex-wrap: wrap; }
   .stats-row div span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
   .stats-row div b { font-size: 15px; }
+
+  /* industry lens (v0.6.0) */
+  .lens-badge {
+    display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: .04em;
+    padding: 1px 6px; margin-right: 6px; border-radius: 3px;
+    text-transform: uppercase; color: var(--bg); vertical-align: 1px;
+  }
+  .lens-undervalued_quality    { background: #10b981; }
+  .lens-cheap_but_deteriorating { background: #f59e0b; }
+  .lens-fair                   { background: #6b7280; }
+  .lens-expensive              { background: #ef4444; }
+  .drawer-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(148,163,184,.18); }
+  .drawer-section h3 { margin: 0 0 8px; font-size: 14px; color: var(--accent); }
+  .lens-verdict {
+    display: inline-block; font-size: 13px; font-weight: 700;
+    padding: 4px 10px; border-radius: 4px; margin: 4px 0 8px;
+  }
+  .lens-verdict--undervalued_quality    { background: rgba(16,185,129,.18); color: #10b981; }
+  .lens-verdict--cheap_but_deteriorating { background: rgba(245,158,11,.18); color: #f59e0b; }
+  .lens-verdict--fair                   { background: rgba(107,114,128,.18); color: #94a3b8; }
+  .lens-verdict--expensive              { background: rgba(239,68,68,.18);  color: #f87171; }
+  .lens-metrics { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 12px; }
+  .lens-metrics td { padding: 4px 6px; border-bottom: 1px solid rgba(148,163,184,.09); }
+  .lens-metric-name { font-weight: 600; color: var(--text); }
+  .lens-metric-value { text-align: right; color: var(--accent); }
+  .lens-metric-z, .lens-metric-pctile, .lens-metric-threshold { color: var(--muted); padding-left: 8px; }
 </style>
 </head>
 <body>
@@ -103,6 +129,23 @@
     <option value="exclude" selected>Exclude (non-syariah)</option>
     <option value="all">All</option>
     <option value="only">Only (syariah)</option>
+  </select>
+  <label for="filter-lens">Lens</label>
+  <select id="filter-lens" title="Filter by industry lens label">
+    <option value="" selected>All</option>
+    <option value="bank_value">bank_value</option>
+    <option value="consumer_value">consumer_value</option>
+    <option value="commodity_value">commodity_value</option>
+    <option value="property_value">property_value</option>
+    <option value="general_value">general_value</option>
+  </select>
+  <label for="filter-verdict">Verdict</label>
+  <select id="filter-verdict" title="Filter by lens verdict">
+    <option value="" selected>Any</option>
+    <option value="undervalued_quality">undervalued_quality</option>
+    <option value="cheap_but_deteriorating">cheap_but_deteriorating</option>
+    <option value="expensive">expensive</option>
+    <option value="fair">fair</option>
   </select>
   <button id="refresh-btn" type="button" title="Refresh harga + hitung ulang z-score">Refresh</button>
   <span id="refresh-status"></span>
@@ -129,6 +172,7 @@
   <div class="sub" id="drawer-sub"></div>
   <div class="stats-row" id="drawer-stats"></div>
   <div id="chart"></div>
+  <div id="drawer-extra"></div>
 </aside>
 
 <script>
@@ -175,8 +219,21 @@ function renderRows(payload) {
       : sy === false
         ? '<span class="flag syaria-no">✕</span>'
         : '<span class="flag syaria-unk">?</span>';
+    // industry_lens badge (v0.6.0): verdict-coded chip on the code cell.
+    // Defensive on verdict class: only allow a-z0-9_ characters so a
+    // malformed payload cannot break the CSS selector.
+    const il = row.industry_lens;
+    let lensBadgeHtml = "";
+    if (il && il.sector) {
+      const vc = String(il.verdict || "fair").replace(/[^a-z0-9_]/g, "");
+      const label = il.label || il.sector;
+      const verdict = il.verdict || "fair";
+      lensBadgeHtml =
+        `<span class="lens-badge lens-${vc}" ` +
+        `title="${label} — verdict: ${verdict}">${il.sector}</span>`;
+    }
     tr.innerHTML = `
-      <td class="code">${row.code}</td>
+      <td class="code">${lensBadgeHtml}${row.code}</td>
       <td>${row.sector_group}</td>
       <td>${row.primary_var}</td>
       <td>${fmt(row.value_now)}</td>
@@ -197,7 +254,12 @@ async function load() {
     const win = $("filter-window").value;
     const mz = $("threshold").value;
     const sy = $("filter-syaria").value;
-    renderRows(await jget(`/api/screen?window=${win}&max_z=${mz}&syaria=${sy}`));
+    const lens = $("filter-lens").value;
+    const verdict = $("filter-verdict").value;
+    let url = `/api/screen?window=${win}&max_z=${mz}&syaria=${sy}`;
+    if (lens) url += `&lens=${encodeURIComponent(lens)}`;
+    if (verdict) url += `&verdict=${encodeURIComponent(verdict)}`;
+    renderRows(await jget(url));
   } catch (e) {
     $("empty-msg").hidden = false;
     $("empty-msg").textContent = `Gagal memuat: ${e.message}`;
@@ -228,13 +290,56 @@ function showDrawer(data) {
     ` · secondary ${data.meta.secondary_var}` +
     ` · source ${data.source} · as_of ${data.as_of}`;
   const s = data.stats;
+  // BVPS (v0.6.0) sits in the stats row next to the other summary stats.
+  // Hidden entirely when book_value_per_share is null.
+  const bvps = data.book_value_per_share;
+  const bvpsHtml = (bvps !== null && bvps !== undefined)
+    ? `<div><span>BVPS</span><b>${fmt(bvps)}</b></div>` : "";
   $("drawer-stats").innerHTML = `
     <div><span>μ</span><b>${fmt(s.mu)}</b></div>
     <div><span>σ</span><b>${fmt(s.sigma)}</b></div>
     <div><span>n_obs</span><b>${s.n_obs}</b></div>
-    <div><span>filings</span><b>${data.filings.length}</b></div>`;
+    <div><span>filings</span><b>${data.filings.length}</b></div>
+    ${bvpsHtml}`;
   renderChart(data);
+  renderIndustryLens(data.industry_lens);
   $("drawer").classList.add("open");
+}
+
+/* industry_lens drawer section (v0.6.0). Renders a verdict pill and a
+   metrics table under #drawer-extra. Replaces any prior section on
+   each drawer open. No-op when data.industry_lens is null. */
+function renderIndustryLens(industry_lens) {
+  const host = $("drawer-extra");
+  host.textContent = "";
+  if (!industry_lens) return;
+  const l = industry_lens;
+  const vc = String(l.verdict || "fair").replace(/[^a-z0-9_]/g, "");
+  const label = l.label || l.sector || "–";
+  const verdict = l.verdict || "fair";
+  const metricRows = Object.entries(l.available_metrics || {})
+    .map(([name, m]) => {
+      const val = (m.value !== null && m.value !== undefined)
+        ? Number(m.value).toFixed(3) : "–";
+      const zCell = (m.z !== null && m.z !== undefined)
+        ? `<td class="lens-metric-z">z=${Number(m.z).toFixed(2)}</td>` +
+          `<td class="lens-metric-pctile">${Math.round((m.pctile || 0) * 100)}th</td>`
+        : `<td colspan="2" class="lens-metric-threshold">threshold check</td>`;
+      return `<tr>
+        <td class="lens-metric-name">${name}</td>
+        <td class="lens-metric-value">${val}</td>
+        ${zCell}
+      </tr>`;
+    }).join("");
+  const section = document.createElement("section");
+  section.className = "drawer-section drawer-section--industry_lens";
+  section.innerHTML = `
+    <h3>Industry Lens — ${label}</h3>
+    <div class="lens-verdict lens-verdict--${vc}" title="verdict: ${verdict}">
+      Verdict: ${verdict}
+    </div>
+    <table class="lens-metrics">${metricRows}</table>`;
+  host.appendChild(section);
 }
 
 function renderChart(data) {
@@ -348,6 +453,8 @@ $("drawer-close").addEventListener("click", () => {
 window.addEventListener("resize", () => chart && chart.resize());
 $("filter-window").addEventListener("change", load);
 $("filter-syaria").addEventListener("change", load);
+$("filter-lens").addEventListener("change", load);
+$("filter-verdict").addEventListener("change", load);
 let thrTimer = null;
 $("threshold").addEventListener("input", () => {
   $("threshold-val").textContent =
