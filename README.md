@@ -219,5 +219,5 @@ MIT (lihat `LICENSE`).
 
 ## Credits
 
-Built oleh [Mavis](https://github.com/lokino23) — pair-programming session dengan
-AI agent MiniMax-M3. Data sources: Yahoo Finance, idx-mcp (XBRL), arjum.
+Built by [PixelVanta](https://github.com/lokino23) · Pair Programming With Minimax AI.
+Data sources: Yahoo Finance, idx-mcp (XBRL), arjum.
