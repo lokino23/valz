@@ -44,3 +44,93 @@ peer_groups:
     - GGRM
     - HMSP
   # extend as needed; tickers not in any group get peer=null in the API
+
+# Industry lens: per-sector valuation interpretation. Each sector defines
+# its primary metric (z-scored via existing stats), supporting threshold
+# checks (current value vs threshold, no z-score), and verdict rules
+# (priority-ordered list of AND-joined conditions).
+#
+# Tickers whose sector is NOT in this map get industry_lens=null in the
+# API (opt-in, same pattern as peer_groups). Sectors not listed fall
+# through to the "general" lens.
+#
+# Threshold keys are named metric_min / metric_max (direction encoded).
+# Verdict rule priority: undervalued_quality > cheap_but_deteriorating >
+# expensive > fair (first match wins). Missing supporting metrics skip
+# the rule silently (no crash).
+#
+# NOTE: condition values are quoted strings (e.g. "<= -1.0"). Unquoted
+# YAML scalars starting with "<" or ">" are interpreted as block-scalar
+# indicators and will not parse; quotes keep the string literal intact.
+industry_lenses:
+  bank:
+    label: bank_value
+    primary: pbv
+    supporting:
+      roe_min: 0.15
+      der_max: 5.0
+    verdict_rules:
+      undervalued_quality:
+        - primary_z: "<= -1.0"
+        - roe:      ">= 0.15"
+        - der:      "<= 5.0"
+      cheap_but_deteriorating:
+        - primary_z: "<= -1.0"
+        - roe:      "< 0.15"
+      expensive:
+        - primary_z: ">= 1.5"
+      fair: default
+
+  commodity:
+    label: commodity_value
+    primary: ev_ebitda
+    supporting:
+      roe_min: 0.10
+    verdict_rules:
+      undervalued_quality:
+        - primary_z: "<= -1.0"
+        - roe:      ">= 0.10"
+      expensive:
+        - primary_z: ">= 1.5"
+      fair: default
+
+  consumer:
+    label: consumer_value
+    primary: per
+    supporting:
+      roe_min: 0.15
+      pbv_max: 5.0
+    verdict_rules:
+      undervalued_quality:
+        - primary_z: "<= -1.5"
+        - roe:      ">= 0.15"
+      expensive:
+        - primary_z: ">= 1.5"
+      fair: default
+
+  property:
+    label: property_value
+    primary: pbv
+    supporting:
+      der_max: 2.0
+    verdict_rules:
+      undervalued_quality:
+        - primary_z: "<= -1.0"
+        - der:      "<= 2.0"
+      expensive:
+        - primary_z: ">= 1.5"
+      fair: default
+
+  general:
+    label: general_value
+    primary: per
+    supporting:
+      roe_min: 0.10
+    verdict_rules:
+      undervalued_quality:
+        - primary_z: "<= -1.5"
+        - roe:      ">= 0.10"
+      expensive:
+        - primary_z: ">= 1.5"
+      fair: default
+  # extend as needed; sectors not listed here get industry_lens=null
