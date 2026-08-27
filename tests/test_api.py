@@ -27,11 +27,12 @@ CFG = {
 
 ROW_KEYS = {"code", "sector_group", "primary_var", "value_now", "mean",
             "sigma", "z", "disc_pct", "streak_days", "roe_ttm", "rev_yoy",
-            "der", "flags", "syaria", "peer"}
+            "der", "flags", "syaria", "peer", "industry_lens"}
 SCREEN_KEYS = {"ok", "as_of", "source", "window", "syaria", "counts",
                "rows", "issues"}
 TICKER_KEYS = {"ok", "meta", "stats", "filings", "series", "source",
-               "as_of", "syaria", "peer"}
+               "as_of", "syaria", "peer", "industry_lens",
+               "book_value_per_share"}
 META_KEYS = {"ok", "last_compute", "universe_count", "coverage",
              "syaria_codes", "version"}
 
@@ -150,6 +151,34 @@ def client_with_peers(tmp_path):
     return TestClient(create_app(
         db_path=p, cfg=cfg_with_peers,
         syaria_set=frozenset({"AAA", "BBB", "DDD", "EEE"})))
+
+
+@pytest.fixture()
+def client_with_lenses(tmp_path):
+    """Same seed as ``client`` but with sector_map + industry_lenses injected
+    into cfg. Only 4 of 5 codes are mapped (EEE excluded) so we have a
+    non-member case for the null-test."""
+    p = str(tmp_path / "lens.db")
+    _seed(p)
+    cfg_with_lenses = {**CFG,
+        "sector_map": {"AAA": "consumer", "BBB": "consumer",
+                       "CCC": "consumer", "DDD": "consumer"},
+        "industry_lenses": {
+            "consumer": {
+                "label": "consumer_value",
+                "primary": "per",
+                "supporting": {"roe_min": 0.15, "pbv_max": 5.0},
+                "verdict_rules": {
+                    "undervalued_quality": [
+                        {"primary_z": "<= -1.5"}, {"roe": ">= 0.15"}
+                    ],
+                    "expensive": [{"primary_z": ">= 1.5"}],
+                    "fair": "default",
+                },
+            },
+        }}
+    return TestClient(create_app(db_path=p, cfg=cfg_with_lenses,
+                                 syaria_set=frozenset()))
 
 
 # ---------------------------------------------------------------- /api/screen
@@ -417,3 +446,76 @@ def test_screen_rows_include_peer_per_row(client_with_peers):
     # EEE and CCC are not in any peer group -> null peer
     assert by_code.get("EEE", {}).get("peer") is None
     assert by_code.get("CCC", {}).get("peer") is None
+
+
+# ---------------------------------------------------- /api/ticker + /api/screen
+#                                       + industry_lens (Task 2 / v0.6.0) and
+#                                       + book_value_per_share (BVPS) on ticker
+#                                       + ?lens= and ?verdict= screener filters
+
+
+def test_ticker_includes_industry_lens_for_member(client_with_lenses):
+    b = client_with_lenses.get("/api/ticker/AAA?window=w5y").json()
+    assert b["ok"] is True
+    assert b.get("industry_lens") is not None
+    l = b["industry_lens"]
+    assert l["sector"] == "consumer"
+    assert l["label"] == "consumer_value"
+    assert l["primary"] == "per"
+    assert "per" in l["available_metrics"]
+    assert "verdict" in l
+
+
+def test_ticker_industry_lens_is_null_for_non_member(client_with_lenses):
+    """EEE has no sector_map entry in this fixture -> industry_lens=null."""
+    b = client_with_lenses.get("/api/ticker/EEE?window=w5y").json()
+    assert b["ok"] is True
+    assert b.get("industry_lens") is None
+
+
+def test_screen_rows_include_industry_lens_per_row(client_with_lenses):
+    b = client_with_lenses.get(
+        "/api/screen?window=w5y&max_z=-1.0").json()
+    for r in b["rows"]:
+        assert "industry_lens" in r
+        if r["industry_lens"] is not None:
+            assert r["industry_lens"]["sector"] == "consumer"
+
+
+# ---------- BVPS in /api/ticker/{code} ----------
+
+def test_ticker_includes_bvps_for_equity_positive(client):
+    b = client.get("/api/ticker/AAA?window=w5y").json()
+    assert b["ok"] is True
+    assert "book_value_per_share" in b
+    bvps = b["book_value_per_share"]
+    if bvps is not None:
+        assert isinstance(bvps, (int, float))
+        assert bvps > 0
+
+
+def test_ticker_bvps_handles_missing_data_gracefully(client):
+    b = client.get("/api/ticker/EEE?window=w5y").json()
+    assert b["ok"] is True
+    bvps = b.get("book_value_per_share")
+    assert bvps is None or isinstance(bvps, (int, float))
+
+
+# ---------- Screener ?lens= and ?verdict= filters ----------
+
+def test_screen_lens_filter_narrows_results(client_with_lenses):
+    b_all = client_with_lenses.get("/api/screen?window=w5y").json()
+    b_filtered = client_with_lenses.get(
+        "/api/screen?window=w5y&lens=consumer").json()
+    for r in b_filtered["rows"]:
+        if r.get("industry_lens") is not None:
+            assert "consumer" in r["industry_lens"]["label"]
+    assert len(b_filtered["rows"]) <= len(b_all["rows"])
+
+
+def test_screen_verdict_filter_narrows_results(client_with_lenses):
+    b = client_with_lenses.get(
+        "/api/screen?window=w5y&verdict=fair").json()
+    for r in b["rows"]:
+        if r.get("industry_lens") is not None:
+            assert r["industry_lens"]["verdict"] == "fair"

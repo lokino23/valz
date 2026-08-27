@@ -31,6 +31,7 @@ from refresher import Refresher
 from zstats import streak
 import valuation
 import peer
+import lens as lens_mod
 
 VERSION = "0.5.0"
 
@@ -154,6 +155,31 @@ def _decorate_with_valuation(rows, con, cfg):
 NO_DATA_AS_OF = "Tanggal data tidak tersedia"
 
 
+def _compute_bvps(con, code) -> float | None:
+    """Compute Book Value Per Share for a code.
+
+    `fundamentals.equity` is in raw IDR (BBCA FY2021 = 202.7T IDR per
+    the real `parse_fundamentals` payload -- see tests/test_fundamentals_parse.py).
+    `shares_history.listed_shares` is in absolute share count (BBCA ~= 122B
+    per tests/test_shares.py). BVPS = equity / shares, no unit conversion.
+
+    Returns None if equity <= 0, shares missing/zero, or either row absent.
+    """
+    row_f = con.execute(
+        "SELECT equity FROM fundamentals WHERE code=? "
+        "ORDER BY year DESC, periode DESC LIMIT 1", (code,)).fetchone()
+    row_s = con.execute(
+        "SELECT listed_shares FROM shares_history WHERE code=? "
+        "ORDER BY date DESC LIMIT 1", (code,)).fetchone()
+    if not row_f or not row_s:
+        return None
+    equity = row_f["equity"]
+    shares = row_s["listed_shares"]
+    if not equity or equity <= 0 or not shares or shares <= 0:
+        return None
+    return float(equity) / float(shares)
+
+
 def _z(val, mu, sigma):
     if val is None or mu is None or not sigma:
         return None
@@ -238,7 +264,9 @@ def create_app(db_path=None, cfg=None, refresher=None, syaria_set=None):
     @app.get("/api/screen")
     def screen(window: str = "w5y", sector: str = "",
                max_z: str = "-1.0", syaria: str = "all",
-               with_valuation: bool = False):
+               with_valuation: bool = False,
+               lens: str | None = None,
+               verdict: str | None = None):
         if syaria not in ("all", "only", "exclude"):
             raise HTTPException(422, f"invalid syaria: {syaria}")
         # boolean coercion: accept only "true" / "1" / "false" / "0"
@@ -307,6 +335,30 @@ def create_app(db_path=None, cfg=None, refresher=None, syaria_set=None):
             # with_valuation and default return paths.
             for r in ranked:
                 r["peer"] = peer.peer_stats_for(cfg, str(db_path), r["code"])
+            # industry_lens per row: null for codes whose sector has no
+            # configured lens (or no primary-metric data). Added BEFORE
+            # the ?lens/?verdict filters so the filters can read it.
+            for r in ranked:
+                r["industry_lens"] = lens_mod.lens_metrics_for(
+                    cfg, str(db_path), r["code"])
+
+            # Apply ?lens= and ?verdict= filters (compound with existing
+            # z/syaria). Each filter silently drops rows whose industry_lens
+            # is None (callers can use that to scope a filter to lensed codes).
+            if lens is not None:
+                lens_lc = lens.lower()
+                ranked = [
+                    r for r in ranked
+                    if r.get("industry_lens") is not None
+                    and lens_lc in (r["industry_lens"].get("label")
+                                    or "").lower()
+                ]
+            if verdict is not None:
+                ranked = [
+                    r for r in ranked
+                    if r.get("industry_lens") is not None
+                    and r["industry_lens"].get("verdict") == verdict
+                ]
 
             if with_valuation:
                 _decorate_with_valuation(ranked, con, cfg)
@@ -365,7 +417,10 @@ def create_app(db_path=None, cfg=None, refresher=None, syaria_set=None):
                     "syaria": _syaria_flag(syaria_set, code),
                     "stats": stats_out, "filings": filings, "series": series,
                     "source": source, "as_of": as_of,
-                    "peer": peer.peer_stats_for(cfg, str(db_path), code)}
+                    "peer": peer.peer_stats_for(cfg, str(db_path), code),
+                    "industry_lens": lens_mod.lens_metrics_for(
+                        cfg, str(db_path), code),
+                    "book_value_per_share": _compute_bvps(con, code)}
         finally:
             con.close()
 

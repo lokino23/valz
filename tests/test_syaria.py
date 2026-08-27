@@ -17,7 +17,8 @@ from app import (_load_syaria_default, _syaria_filter_ok, _syaria_flag,
 from db import init_db
 
 TICKER_KEYS = {"ok", "meta", "stats", "filings", "series", "source",
-               "as_of", "syaria", "peer"}
+               "as_of", "syaria", "peer", "industry_lens",
+               "book_value_per_share"}
 
 CFG = {
     "universe": ["AAA", "BBB", "CCC", "DDD", "EEE"],
