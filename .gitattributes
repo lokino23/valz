@@ -1,0 +1,2 @@
+data/valz.db filter=lfs diff=lfs merge=lfs -text
+desktop/payload/valz.db filter=lfs diff=lfs merge=lfs -text

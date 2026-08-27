@@ -12,10 +12,16 @@ venv/
 # Deployed/seeded config (per-machine; example IS committed)
 config.yaml
 
-# Regenerable data (never hand-edit, never commit)
+# Regenerable data — most .db files are local-only. The two exceptions
+# (data/valz.db + desktop/payload/valz.db) are tracked via Git LFS
+# (.gitattributes) so a fresh clone has a usable bundled snapshot without
+# running backfill. Re-tracking via `git lfs untrack <pattern>` if you
+# want to revert to "data is always local".
 *.db
 *.db.bak*
-data/
+!data/valz.db
+!desktop/payload/valz.db
+data/*
 
 # OS / editor noise
 Thumbs.db
