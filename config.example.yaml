@@ -102,7 +102,6 @@ industry_lenses:
     primary: per
     supporting:
       roe_min: 0.15
-      pbv_max: 5.0
     verdict_rules:
       undervalued_quality:
         - primary_z: "<= -1.5"

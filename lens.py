@@ -29,12 +29,22 @@ Tickers whose sector is not in this map are silently ignored
 
 # Verdict priority order. First matching rule wins. This list must be
 # kept in sync with the rule keys the user defines in config.
-# `dividend_trap` is a telco-specific verdict (cheap but not paying
-# meaningful dividend) — fires between undervalued_quality and
-# cheap_but_deteriorating when configured.
+#
+# To add a new verdict type:
+#   (1) Add it to this list at the right priority position.
+#   (2) Define the verdict's rule block in the relevant `industry_lenses`
+#       entries in config.yaml (e.g. `dividend_trap: [...]` for telco).
+#   (3) Add a `<option value="...">` to the verdict dropdown in
+#       static/index.html so the UI surfaces it.
+#   (4) Add a test in tests/test_lens.py with a custom cfg that fires the
+#       new rule (e.g. the test_evaluate_verdict_* pattern).
+#
+# Historical note: `dividend_trap` was prototyped here but removed at
+# v0.6.0 final-fix because no config wires it (no `div_yield` data
+# column is currently available). Re-add when dividend yield data
+# becomes available.
 _VERDICT_PRIORITY = [
     "undervalued_quality",
-    "dividend_trap",
     "cheap_but_deteriorating",
     "expensive",
     "fair",
@@ -171,6 +181,7 @@ _PRIMARY_VAR_COL = {
     "per": "per_ttm",
     "pbv": "pbv",
     "ev_ebitda": "ev_ebitda",
+    # "ps" is forward-compat for a future "ps_value" lens (none configured at v0.6.0).
     "ps": "ps_ttm",
 }
 
