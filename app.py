@@ -33,7 +33,7 @@ import valuation
 import peer
 import lens as lens_mod
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 # DES (Daftar Efek Syariah) snapshot loader. The set is injected by the
 # factory so tests stay network-free; the on-disk fallback path is used in
