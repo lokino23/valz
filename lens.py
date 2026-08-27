@@ -25,7 +25,6 @@ names (matching keys in `sector_map`) to lens blocks:
 Tickers whose sector is not in this map are silently ignored
 (industry_lens field is null).
 """
-import sqlite3
 
 
 # Verdict priority order. First matching rule wins. This list must be
