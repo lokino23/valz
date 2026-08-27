@@ -13,7 +13,66 @@ five years between 14 and 22. valz fits winsorized rolling stats (3y/5y
 windows) per code on the sector's primary variable (banks → PBV, commodity
 → EV/EBITDA, everything else → PER), and ranks the discount.
 
-## Runbook
+## Quick start (Windows local — untuk trader/investor)
+
+Cara paling cepet pake valz di Windows: **download zip, extract, double-click**.
+
+```
+1. Download release terbaru dari
+   https://github.com/lokino23/valz/releases
+   (cari file valz-X.Y.Z-portable.zip, sekitar 21 MB)
+
+2. Extract zip ke folder mana aja, misal C:\valz\
+   (akan jadi C:\valz\valz\valz.exe + C:\valz\valz\_internal\)
+
+3. Double-click C:\valz\valz\valz.exe
+
+4. Browser otomatis kebuka ke http://127.0.0.1:8103
+   (kalau gak kebuka, manual buka URL itu)
+
+5. Selesai. Data IHSG bundled (snapshot dari waktu zip dibuild,
+   biasanya 1-2 hari old). Bisa langsung browse screener.
+```
+
+**Yang di-bundle di zip:**
+- Python runtime + semua dependencies (FastAPI, uvicorn, dll)
+- SQLite database `valz.db` (113 ticker IHSG, ~6 tahun history)
+- `config.yaml` dengan sector_map 113 ticker + 6 industry_lenses
+- Launcher `valz.exe` (windowed, no console)
+
+**Yang TIDAK di-bundle (perlu di-setup terpisah kalau mau refresh data):**
+- `idx-mcp` server (untuk re-fetch fundamentals via XBRL)
+- `arjum` API key (untuk re-fetch prices kalau Yahoo Finance gagal)
+- `IDX_MCP_URL` + `ARJUM_API_KEY` di `~/valz/src/.env`
+
+**Struktur folder di Windows (setelah first-run):**
+```
+%LOCALAPPDATA%\valz\data\
+├── valz.db        # SQLite database (lo bisa pake sqlite3 CLI utk query)
+├── config.yaml    # sector_map, industry_lenses, peer_groups, etc.
+└── valz.log       # launcher logs (kalau error, cek sini)
+```
+
+**Customization (advanced, optional):**
+- Edit `config.yaml` di `%LOCALAPPDATA%\valz\data\` untuk adjust:
+  - `sector_map:` — map ticker ke sector (default 113 ticker ke bank/commodity/consumer/property/telco/general)
+  - `peer_groups:` — peer set untuk AMRT-like false positive detection
+  - `industry_lenses:` — verdict rules per sector
+- **Restart `valz.exe`** setiap kali edit config biar kebaca ulang.
+
+**Refresh data (advanced, butuh setup):**
+- Untuk re-fetch prices + fundamentals (butuh idx-mcp + arjum), lihat
+  section **Maintainer / cloud setup** di bawah. Refresh harian dijalanin
+  di homeserver (100.86.244.90:8102), hasilnya tinggal download zip baru
+  dari GitHub releases.
+
+**Troubleshooting:**
+- Browser gak kebuka otomatis: manual buka http://127.0.0.1:8103
+- "Port already in use": tutup valz.exe lain, atau set `VALZ_PORT_BASE` env
+- Stuck loading: cek `%LOCALAPPDATA%\valz\valz.log` untuk error details
+- Data udah lama (>1 minggu): download zip baru dari GitHub releases
+
+## Maintainer / cloud setup (untuk developer/sysadmin)
 
 ```bash
 # 1) clone + config
