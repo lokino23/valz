@@ -121,6 +121,24 @@ industry_lenses:
         - primary_z: ">= 1.5"
       fair: default
 
+  telco:
+    label: telco_value
+    primary: ev_ebitda
+    supporting:
+      roe_min: 0.10
+      div_yield_min: 0.03
+    verdict_rules:
+      undervalued_quality:
+        - primary_z: "<= -1.0"
+        - roe:        ">= 0.10"
+        - div_yield:  ">= 0.03"
+      dividend_trap:
+        - primary_z: "<= -1.0"
+        - div_yield:  "< 0.03"
+      expensive:
+        - primary_z: ">= 1.5"
+      fair: default
+
   general:
     label: general_value
     primary: per

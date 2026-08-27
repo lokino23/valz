@@ -148,3 +148,35 @@ def test_evaluate_verdict_handles_none_primary_z():
     lens_cfg = lens_cfg_for(cfg, "bank")
     result = evaluate_verdict(lens_cfg, primary_z=None, supporting_values={"roe": 0.20, "der": 4.0})
     assert result == "fair"
+
+
+def test_evaluate_verdict_dividend_trap_for_telco():
+    """Telco with cheap primary but low dividend → dividend_trap verdict.
+
+    `dividend_trap` is a telco-specific verdict added in v0.6.0+1. It fires
+    AFTER undervalued_quality and BEFORE cheap_but_deteriorating in the
+    priority order. A cheap telco that doesn't pay a meaningful dividend is
+    a "dividend trap" (looks attractive on multiples, but the price weakness
+    is signaling real trouble).
+    """
+    cfg = _cfg(sectors={
+        "telco": {
+            "label": "telco_value",
+            "primary": "ev_ebitda",
+            "supporting": {"roe_min": 0.10, "div_yield_min": 0.03},
+            "verdict_rules": {
+                "undervalued_quality": [
+                    {"primary_z": "<= -1.0"}, {"roe": ">= 0.10"}, {"div_yield": ">= 0.03"},
+                ],
+                "dividend_trap": [
+                    {"primary_z": "<= -1.0"}, {"div_yield": "< 0.03"},
+                ],
+                "expensive": [{"primary_z": ">= 1.5"}],
+                "fair": "default",
+            },
+        },
+    })
+    lens_cfg = lens_cfg_for(cfg, "telco")
+    # primary_z=-1.5 (cheap) but div_yield=0.01 (low) → dividend_trap
+    result = evaluate_verdict(lens_cfg, primary_z=-1.5, supporting_values={"roe": 0.05, "div_yield": 0.01})
+    assert result == "dividend_trap"

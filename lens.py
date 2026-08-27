@@ -29,8 +29,12 @@ Tickers whose sector is not in this map are silently ignored
 
 # Verdict priority order. First matching rule wins. This list must be
 # kept in sync with the rule keys the user defines in config.
+# `dividend_trap` is a telco-specific verdict (cheap but not paying
+# meaningful dividend) — fires between undervalued_quality and
+# cheap_but_deteriorating when configured.
 _VERDICT_PRIORITY = [
     "undervalued_quality",
+    "dividend_trap",
     "cheap_but_deteriorating",
     "expensive",
     "fair",
