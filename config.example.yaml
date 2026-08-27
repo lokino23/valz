@@ -83,13 +83,16 @@ industry_lenses:
 
   commodity:
     label: commodity_value
-    primary: ev_ebitda
+    primary: pbv                     # fallback from ev_ebitda (data sparse at v0.6.0)
     supporting:
       roe_min: 0.10
     verdict_rules:
       undervalued_quality:
         - primary_z: "<= -1.0"
         - roe:      ">= 0.10"
+      cheap_but_deteriorating:
+        - primary_z: "<= -1.0"
+        - roe:      "< 0.10"
       expensive:
         - primary_z: ">= 1.5"
       fair: default
@@ -123,18 +126,17 @@ industry_lenses:
 
   telco:
     label: telco_value
-    primary: ev_ebitda
+    primary: per                      # fallback from ev_ebitda (data sparse at v0.6.0)
     supporting:
       roe_min: 0.10
-      div_yield_min: 0.03
+      pbv_max: 3.0
     verdict_rules:
       undervalued_quality:
         - primary_z: "<= -1.0"
-        - roe:        ">= 0.10"
-        - div_yield:  ">= 0.03"
-      dividend_trap:
+        - roe:      ">= 0.10"
+      cheap_but_deteriorating:
         - primary_z: "<= -1.0"
-        - div_yield:  "< 0.03"
+        - roe:      "< 0.10"
       expensive:
         - primary_z: ">= 1.5"
       fair: default
